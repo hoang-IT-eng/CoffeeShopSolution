@@ -1,0 +1,43 @@
+﻿@model IEnumerable<CoffeeShop.Models.Table>
+
+<h1>Sơ đồ bàn</h1>
+
+<style>
+    .floor-plan {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 20px;
+        padding: 20px;
+    }
+
+    .table {
+        padding: 20px;
+        text-align: center;
+        border-radius: 10px;
+        color: white;
+    }
+
+    .table-empty {
+        background-color: green;
+    }
+
+    .table-occupied {
+        background-color: orange;
+    }
+
+    .table-reserved {
+        background-color: gray;
+    }
+</style>
+
+<div class="floor-plan">
+    @foreach (var table in Model)
+    {
+        <div class="table table-@table.Status.ToLower()">
+            <h3>@table.Name</h3>
+            <p>@table.Area</p>
+            <p>@table.Status</p>
+            <a asp-controller="Order" asp-action="Create" asp-route-tableId="@table.Id" class="btn btn-light">Đặt món</a>
+        </div>
+    }
+</div>

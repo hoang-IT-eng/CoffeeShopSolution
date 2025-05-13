@@ -1,0 +1,11 @@
+﻿@model CoffeeShop.Models.MenuItem
+
+<h1>Xóa món</h1>
+
+<h3>Bạn có chắc muốn xóa món "@Model.Name"?</h3>
+
+<form asp-action="Delete" method="post">
+    <input type="hidden" asp-for="Id" />
+    <button type="submit" class="btn btn-danger">Xóa</button>
+    <a asp-action="Index" class="btn btn-secondary">Quay lại</a>
+</form>

@@ -1,0 +1,30 @@
+﻿@model IEnumerable<CoffeeShop.Models.MenuItem>
+
+<h1>Danh sách món</h1>
+
+<table class="table">
+    <thead>
+        <tr>
+            <th>Tên món</th>
+            <th>Giá</th>
+            <th>Loại</th>
+            <th>Hành động</th>
+        </tr>
+    </thead>
+    <tbody>
+        @foreach (var item in Model)
+        {
+            <tr>
+                <td>@item.Name</td>
+                <td>@item.Price.ToString("C")</td>
+                <td>@item.Category</td>
+                <td>
+                    <a asp-action="Edit" asp-route-id="@item.Id" class="btn btn-primary">Sửa</a>
+                    <a asp-action="Delete" asp-route-id="@item.Id" class="btn btn-danger">Xóa</a>
+                </td>
+            </tr>
+        }
+    </tbody>
+</table>
+
+<a asp-action="Create" class="btn btn-success">Thêm món mới</a>

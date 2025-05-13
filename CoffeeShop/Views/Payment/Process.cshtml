@@ -1,0 +1,30 @@
+﻿@model dynamic
+
+<h1>Thanh toán đơn hàng #@ViewBag.Order.Id</h1>
+
+@if (!ViewData.ModelState.IsValid)
+{
+    <div class="alert alert-danger">
+        @foreach (var error in ViewData.ModelState.Values.SelectMany(v => v.Errors))
+        {
+            <p>@error.ErrorMessage</p>
+        }
+    </div>
+}
+
+<form asp-action="Process" method="post">
+    <input type="hidden" name="orderId" value="@ViewBag.Order.Id" />
+    <div class="form-group">
+        <label>Tổng tiền</label>
+        <input type="text" class="form-control" value="@ViewBag.Order.Total.ToString("C")" readonly />
+    </div>
+    <div class="form-group">
+        <label>Phương thức thanh toán</label>
+        <select name="paymentMethod" class="form-control">
+            <option value="Cash">Tiền mặt</option>
+            <option value="Card">Thẻ</option>
+            <option value="Mobile">Thanh toán di động</option>
+        </select>
+    </div>
+    <button type="submit" class="btn btn-primary">Thanh toán</button>
+</form>
