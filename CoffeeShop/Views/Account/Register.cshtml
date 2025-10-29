@@ -1,0 +1,27 @@
+﻿<h1>Đăng ký</h1>
+
+@if (!ViewData.ModelState.IsValid)
+{
+    <div class="alert alert-danger">
+        @foreach (var error in ViewData.ModelState.Values.SelectMany(v => v.Errors))
+        {
+            <p>@error.ErrorMessage</p>
+        }
+    </div>
+}
+
+<form asp-action="Register" method="post">
+    <div class="form-group">
+        <label>Email</label>
+        <input name="email" class="form-control" />
+    </div>
+    <div class="form-group">
+        <label>Họ tên</label>
+        <input name="fullName" class="form-control" />
+    </div>
+    <div class="form-group">
+        <label>Mật khẩu</label>
+        <input name="password" type="password" class="form-control" />
+    </div>
+    <button type="submit" class="btn btn-primary">Đăng ký</button>
+</form>

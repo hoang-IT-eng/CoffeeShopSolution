@@ -1,0 +1,78 @@
+﻿@model IEnumerable<CoffeeShop.Models.InventoryItem>
+
+@{
+    ViewData["Title"] = "Quản lý kho nguyên liệu";
+}
+
+<h1>Quản lý kho nguyên liệu</h1>
+
+<div class="mb-3">
+    <a asp-action="Create" class="btn btn-success">Thêm nguyên liệu mới</a>
+</div>
+
+<!-- Lọc nguyên liệu sắp hết hạn -->
+<form asp-action="Index" method="get" class="mb-3">
+    <div class="row">
+        <div class="col-md-4">
+            <label>Lọc theo hạn dùng trước ngày:</label>
+            <input type="date" name="beforeDate" class="form-control" value="@ViewBag.BeforeDate" />
+        </div>
+        <div class="col-md-2">
+            <label>&nbsp;</label>
+            <button type="submit" class="btn btn-primary d-block">Lọc</button>
+        </div>
+        <div class="col-md-2">
+            <label>&nbsp;</label>
+            <a asp-action="Index" class="btn btn-secondary d-block">Xóa lọc</a>
+        </div>
+    </div>
+</form>
+
+<table class="table table-striped">
+    <thead>
+        <tr>
+            <th>Tên</th>
+            <th>Số lượng</th>
+            <th>Đơn vị</th>
+            <th>Hạn dùng</th>
+            <th>Ngưỡng tối thiểu</th>
+            <th>Trạng thái</th>
+            <th>Hành động</th>
+        </tr>
+    </thead>
+    <tbody>
+        @foreach (var item in Model)
+        {
+            <tr class="@(item.Quantity <= item.MinimumThreshold ? "table-warning" : "") @(item.ExpirationDate <= DateTime.Today.AddDays(7) ? "table-danger" : "")">
+                <td>@item.Name</td>
+                <td>@item.Quantity</td>
+                <td>@item.Unit</td>
+                <td>@item.ExpirationDate.ToString("dd/MM/yyyy")</td>
+                <td>@item.MinimumThreshold</td>
+                <td>
+                    @if (item.Quantity <= item.MinimumThreshold)
+                    {
+                        <span class="badge badge-warning">Sắp hết</span>
+                    }
+                    @if (item.ExpirationDate <= DateTime.Today.AddDays(7))
+                    {
+                        <span class="badge badge-danger">Sắp hết hạn</span>
+                    }
+                </td>
+                <td>
+                    <a asp-action="Edit" asp-route-id="@item.Id" class="btn btn-primary btn-sm">Nhập/Xuất kho</a>
+                    <form asp-action="Delete" asp-route-id="@item.Id" method="post" style="display:inline;">
+                        <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Bạn có chắc chắn muốn xóa @item.Name?')">Xóa</button>
+                    </form>
+                </td>
+            </tr>
+        }
+    </tbody>
+</table>
+
+@if (!Model.Any())
+{
+    <div class="alert alert-info">
+        <p>Không có nguyên liệu nào trong kho.</p>
+    </div>
+}

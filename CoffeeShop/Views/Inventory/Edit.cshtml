@@ -1,0 +1,59 @@
+﻿@model CoffeeShop.Models.InventoryItem
+
+@{
+    ViewData["Title"] = "Nhập/Xuất kho";
+}
+
+<h1>Nhập/Xuất kho: @Model.Name</h1>
+
+<div class="row">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">Thông tin nguyên liệu</div>
+            <div class="card-body">
+                <p><strong>Tên:</strong> @Model.Name</p>
+                <p><strong>Số lượng hiện tại:</strong> @Model.Quantity @Model.Unit</p>
+                <p><strong>Hạn dùng hiện tại:</strong> @Model.ExpirationDate.ToString("dd/MM/yyyy")</p>
+                <p><strong>Ngưỡng tối thiểu:</strong> @Model.MinimumThreshold @Model.Unit</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">Nhập/Xuất kho</div>
+            <div class="card-body">
+                <form asp-action="Edit" method="post">
+                    <input type="hidden" asp-for="Id" />
+
+                    <div class="form-group">
+                        <label>Hành động</label>
+                        <select name="action" class="form-control" required>
+                            <option value="">-- Chọn hành động --</option>
+                            <option value="add">Nhập kho</option>
+                            <option value="deduct">Xuất kho</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Số lượng</label>
+                        <input type="number" name="quantity" class="form-control" step="0.01" min="0.01" required />
+                        <small class="form-text text-muted">Nhập số lượng cần nhập/xuất</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Hạn dùng mới (chỉ áp dụng khi nhập kho)</label>
+                        <input name="expirationDate" type="date" class="form-control" value="@Model.ExpirationDate.ToString("yyyy-MM-dd")" />
+                    </div>
+
+                    <button type="submit" class="btn btn-primary">Cập nhật</button>
+                    <a asp-action="Index" class="btn btn-secondary">Quay lại</a>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+}

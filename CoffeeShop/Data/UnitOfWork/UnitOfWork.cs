@@ -1,6 +1,7 @@
 ﻿// Data/UnitOfWork/UnitOfWork.cs
 using CoffeeShop.Data.Repositories;
 using CoffeeShop.Models;
+using CoffeeShop.ViewModels;
 
 namespace CoffeeShop.Data.UnitOfWork
 {
@@ -13,8 +14,11 @@ namespace CoffeeShop.Data.UnitOfWork
         public IRepository<MenuItem> MenuItems { get; private set; }
         public IRepository<Table> Tables { get; private set; }
         public IRepository<InventoryItem> InventoryItems { get; private set; }
-        public IRepository<MenuItemRecipe> MenuItemRecipes { get; private set; }
+        public IRepository<MenuItemRecipe> MenuItemRecipes { get; private set; } // Add this
         public IRepository<Payment> Payments { get; private set; }
+        public IRepository<Customer> Customers { get; private set; }
+        public IRepository<CustomerPromotion> CustomerPromotions { get; private set; }
+
 
         public UnitOfWork(ApplicationDbContext context)
         {
@@ -24,8 +28,10 @@ namespace CoffeeShop.Data.UnitOfWork
             MenuItems = new Repository<MenuItem>(context);
             Tables = new Repository<Table>(context);
             InventoryItems = new Repository<InventoryItem>(context);
-            MenuItemRecipes = new Repository<MenuItemRecipe>(context);
+            MenuItemRecipes = new Repository<MenuItemRecipe>(context); // Add this
             Payments = new Repository<Payment>(context);
+            Customers = new Repository<Customer>(context);
+            CustomerPromotions = new Repository<CustomerPromotion>(context);
         }
 
         public async Task<int> SaveChangesAsync() => await _context.SaveChangesAsync();

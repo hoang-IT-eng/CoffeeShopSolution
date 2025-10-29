@@ -1,0 +1,63 @@
+﻿@model CoffeeShop.Models.MenuItem
+
+@{
+    ViewData["Title"] = "Menu Item Details";
+}
+
+<h1>Details</h1>
+
+<div>
+    <h4>@Html.DisplayFor(model => model.Name)</h4>
+    <hr />
+    <dl class="row">
+        <dt class="col-sm-3">@Html.DisplayNameFor(model => model.Price)</dt>
+        <dd class="col-sm-9">@Html.DisplayFor(model => model.Price)</dd>
+
+        <dt class="col-sm-3">@Html.DisplayNameFor(model => model.Description)</dt>
+        <dd class="col-sm-9">@Html.DisplayFor(model => model.Description)</dd>
+
+        <dt class="col-sm-3">@Html.DisplayNameFor(model => model.Category)</dt>
+        <dd class="col-sm-9">@Html.DisplayFor(model => model.Category)</dd>
+
+        <dt class="col-sm-3">@Html.DisplayNameFor(model => model.IsAvailable)</dt>
+        <dd class="col-sm-9">@(Model.IsAvailable ? "Yes" : "No")</dd>
+
+        @if (!string.IsNullOrEmpty(Model.ImageUrl))
+        {
+            <dt class="col-sm-3">Image</dt>
+            <dd class="col-sm-9"><img src="@Model.ImageUrl" alt="@Model.Name" style="max-width: 200px; max-height: 200px;" /></dd>
+        }
+    </dl>
+
+    <h5>Recipe:</h5>
+    @if (Model.Recipes != null && Model.Recipes.Any())
+    {
+        <table class="table table-sm table-bordered" style="width:auto;">
+            <thead>
+                <tr>
+                    <th>Ingredient</th>
+                    <th>Quantity Required</th>
+                    <th>Unit</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var recipe in Model.Recipes)
+                {
+                    <tr>
+                        <td>@recipe.InventoryItem?.Name</td>
+                        <td>@recipe.QuantityRequired.ToString("0.####")</td>
+                        <td>@recipe.InventoryItem?.Unit</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+    else
+    {
+        <p>No recipe defined for this item.</p>
+    }
+</div>
+<div>
+    <a asp-action="Edit" asp-route-id="@Model.Id" class="btn btn-primary">Edit</a> |
+    <a asp-action="Index" class="btn btn-secondary">Back to List</a>
+</div>

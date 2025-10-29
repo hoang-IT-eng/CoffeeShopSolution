@@ -1,0 +1,18 @@
+﻿<h2>Gán vai trò cho @ViewBag.UserEmail</h2>
+
+<p>Vai trò hiện tại: @(string.Join(", ", ViewBag.UserRoles))</p>
+
+<form asp-action="AssignRole" method="post">
+    <input type="hidden" name="userId" value="@ViewBag.UserId" />
+    <div class="form-group">
+        <label>Chọn vai trò</label>
+        <select name="role" class="form-control">
+            <option value="">-- Không chọn --</option>
+            @foreach (var role in ViewBag.Roles)
+            {
+                <option value="@role">@role</option>
+            }
+        </select>
+    </div>
+    <button type="submit" class="btn btn-primary">Gán vai trò</button>
+</form>

@@ -1,0 +1,35 @@
+﻿@using Microsoft.AspNetCore.Identity
+
+@model IEnumerable<CoffeeShop.Models.ApplicationUser>
+
+<h1>Quản lý người dùng</h1>
+
+<a asp-action="Create" class="btn btn-primary mb-3">Tạo người dùng</a>
+
+<table class="table">
+    <thead>
+        <tr>
+            <th>Tên</th>
+            <th>Email</th>
+            <th>Vai trò</th>
+            <th>Hành động</th>
+        </tr>
+    </thead>
+    <tbody>
+        @foreach (var user in Model)
+        {
+            <tr>
+                <td>@(user.FullName ?? "Chưa cập nhật")</td>
+                <td>@user.Email</td>
+                <td>
+                    @(string.Join(", ", await UserManager.GetRolesAsync(user)))
+                </td>
+                <td>
+                    <a asp-action="AssignRole" asp-route-id="@user.Id" class="btn btn-primary">Gán vai trò</a>
+                </td>
+            </tr>
+        }
+    </tbody>
+</table>
+
+@inject UserManager<CoffeeShop.Models.ApplicationUser> UserManager

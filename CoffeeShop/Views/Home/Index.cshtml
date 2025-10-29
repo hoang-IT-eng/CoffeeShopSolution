@@ -1,8 +1,76 @@
-﻿@{
-    ViewData["Title"] = "Home Page";
+﻿@model IEnumerable<CoffeeShop.Models.Order>
+
+@{
+    ViewData["Title"] = "Trang chủ - CoffeeShop";
 }
 
-<div class="text-center">
-    <h1 class="display-4">Welcome</h1>
-    <p>Learn about <a href="https://learn.microsoft.com/aspnet/core">building Web apps with ASP.NET Core</a>.</p>
+<h1 class="mb-4">Trang chủ - CoffeeShop</h1>
+
+<!-- Tổng quan trạng thái bàn -->
+<div class="row mb-4">
+    <div class="col-md-4">
+        <div class="card text-white bg-success card-hover">
+            <div class="card-body">
+                <h5 class="card-title">Bàn trống</h5>
+                <p class="card-text display-4">@ViewBag.EmptyTables</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card text-white bg-warning card-hover">
+            <div class="card-body">
+                <h5 class="card-title">Bàn đang phục vụ</h5>
+                <p class="card-text display-4">@ViewBag.OccupiedTables</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card text-white bg-info card-hover">
+            <div class="card-body">
+                <h5 class="card-title">Bàn đã đặt</h5>
+                <p class="card-text display-4">@ViewBag.ReservedTables</p>
+            </div>
+        </div>
+    </div>
 </div>
+
+<!-- Đơn hàng đang chờ xử lý -->
+<h3 class="mb-3">Đơn hàng đang chờ xử lý</h3>
+@if (Model.Any())
+{
+    <div class="table-responsive">
+        <table class="table table-striped table-hover">
+            <thead>
+                <tr>
+                    <th>Mã đơn</th>
+                    <th>Bàn</th>
+                    <th>Thời gian tạo</th>
+                    <th>Tổng tiền</th>
+                    <th>Trạng thái</th>
+                    <th>Hành động</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var order in Model)
+                {
+                    <tr>
+                        <td>#@order.Id</td>
+                        <td>@order.Table?.Name</td>
+                        <td>@order.CreatedAt.ToString("g")</td>
+                        <td>@order.Total.ToString("C")</td>
+                        <td>@order.Status</td>
+                        <td>
+                            <a asp-controller="Order" asp-action="Details" asp-route-id="@order.Id" class="btn btn-primary btn-sm">Chi tiết</a>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+else
+{
+    <div class="alert alert-info">
+        Không có đơn hàng nào đang chờ xử lý.
+    </div>
+}

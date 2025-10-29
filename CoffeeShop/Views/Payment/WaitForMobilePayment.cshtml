@@ -1,0 +1,148 @@
+﻿@model CoffeeShop.Models.Payment
+@{
+    ViewData["Title"] = "Chờ xác nhận thanh toán MoMo";
+    // Lấy thông tin order từ Model.Order (đã được include trong GetPaymentWithDetailsAsync)
+    var order = Model.Order;
+}
+
+<div class="container mt-4">
+    <div class="row justify-content-center">
+        <div class="col-md-8 col-lg-6">
+            <div class="card shadow-lg">
+                <div class="card-header bg-primary text-white">
+                    <h4 class="mb-0"><i class="fas fa-mobile-alt me-2"></i>@ViewData["Title"]</h4>
+                </div>
+                <div class="card-body text-center">
+                    @if (order != null)
+                    {
+                        <p class="lead">Đơn hàng: <strong>#@order.Id</strong></p>
+                        <p class="display-6 text-success fw-bold mb-3">@Model.Amount.ToString("C", new System.Globalization.CultureInfo("vi-VN"))</p>
+                    }
+                    else
+                    {
+                        <p class="text-danger">Không tìm thấy thông tin đơn hàng liên kết.</p>
+                    }
+
+                    <div class="alert alert-info mt-3">
+                        <i class="fas fa-info-circle me-2"></i>
+                        Vui lòng mở ứng dụng MoMo (hoặc ứng dụng quét QR bất kỳ) của bạn và quét mã dưới đây để hoàn tất thanh toán (giả lập).
+                    </div>
+
+                    <div class="my-4">
+                        <img src="https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=coffeeshop%3A%2F%2Fpay%3FpaymentId%3D@Model.Id%26amount%3D@Model.Amount%26orderId%3D@Model.OrderId"
+                             alt="Giả lập QR Code MoMo" class="img-fluid rounded border p-1" />
+                        <p class="mt-2 text-muted-custom">
+                            <small>Nội dung QR (để tham khảo): <code>coffeeshop://pay?paymentId=@Model.Id&amount=@Model.Amount&orderId=@Model.OrderId</code></small>
+                        </p>
+                    </div>
+
+                    <hr />
+
+                    <div id="actionButtons">
+                        <h5 class="text-muted-custom mb-3">Mô phỏng kết quả từ MoMo:</h5>
+                        <form id="confirmPaymentFormSuccess" asp-action="ConfirmMobilePayment" asp-controller="Payment" method="post" class="d-inline-block me-2">
+                            @Html.AntiForgeryToken()
+                            <input type="hidden" name="paymentId" value="@Model.Id" />
+                            <input type="hidden" name="success" value="true" />
+                            <button type="submit" class="btn btn-success btn-lg shadow-sm">
+                                <i class="fas fa-check-circle me-2"></i>Giả lập THÀNH CÔNG
+                            </button>
+                        </form>
+
+                        <form id="confirmPaymentFormFailure" asp-action="ConfirmMobilePayment" asp-controller="Payment" method="post" class="d-inline-block">
+                            @Html.AntiForgeryToken()
+                            <input type="hidden" name="paymentId" value="@Model.Id" />
+                            <input type="hidden" name="success" value="false" />
+                            <button type="submit" class="btn btn-danger btn-lg shadow-sm">
+                                <i class="fas fa-times-circle me-2"></i>Giả lập THẤT BẠI
+                            </button>
+                        </form>
+                    </div>
+                    <div id="confirmationResult" class="mt-4"></div>
+
+                </div>
+                <div class="card-footer text-center">
+                    <a asp-controller="Payment" asp-action="Index" class="btn btn-outline-secondary">
+                        <i class="fas fa-arrow-left me-2"></i>Quay lại Danh sách Thanh toán
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        $(document).ready(function() {
+            $('form[id^="confirmPaymentForm"]').on('submit', function(e) {
+                e.preventDefault(); // Ngăn chặn submit form mặc định
+                var form = $(this);
+                var button = form.find('button[type="submit"]');
+                var originalButtonText = button.html(); // Lưu lại nội dung ban đầu của nút
+
+                // Vô hiệu hóa cả hai nút để tránh click nhiều lần
+                $('#confirmPaymentFormSuccess button, #confirmPaymentFormFailure button')
+                    .html('<i class="fas fa-spinner fa-spin"></i> Đang xử lý...')
+                    .prop('disabled', true);
+
+                $('#confirmationResult').html(''); // Xóa kết quả cũ
+
+                $.ajax({
+                    type: form.attr('method'),
+                    url: form.attr('action'),
+                    data: form.serialize(), // Gửi dữ liệu form (bao gồm cả AntiForgeryToken)
+                    dataType: 'json', // Mong đợi phản hồi JSON từ server
+                    success: function(response) {
+                        if (response.redirectTo) {
+                            // Thông báo sẽ được hiển thị ở trang mới thông qua TempData
+                            window.location.href = response.redirectTo;
+                        } else if (response.error) {
+                            $('#confirmationResult').html('<div class="alert alert-danger alert-dismissible fade show" role="alert">' +
+                                response.error +
+                                '<button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button></div>');
+                            // Kích hoạt lại các nút
+                            $('#confirmPaymentFormSuccess button').html($('#confirmPaymentFormSuccess').data('originaltext')).prop('disabled', false);
+                            $('#confirmPaymentFormFailure button').html($('#confirmPaymentFormFailure').data('originaltext')).prop('disabled', false);
+                        } else {
+                             // Trường hợp không có redirectTo hoặc error cụ thể nhưng ajax thành công
+                             $('#confirmationResult').html('<div class="alert alert-warning">Phản hồi không xác định từ máy chủ.</div>');
+                             $('#confirmPaymentFormSuccess button').html($('#confirmPaymentFormSuccess').data('originaltext')).prop('disabled', false);
+                             $('#confirmPaymentFormFailure button').html($('#confirmPaymentFormFailure').data('originaltext')).prop('disabled', false);
+                        }
+                    },
+                    error: function(xhr, status, error) {
+                        var errorMessage = "Lỗi khi gửi yêu cầu: ";
+                        if (xhr.responseJSON && xhr.responseJSON.error) {
+                            errorMessage += xhr.responseJSON.error;
+                        } else {
+                            errorMessage += error || status;
+                        }
+                        $('#confirmationResult').html('<div class="alert alert-danger alert-dismissible fade show" role="alert">' +
+                            errorMessage +
+                            '<button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button></div>');
+                        // Kích hoạt lại các nút
+                        $('#confirmPaymentFormSuccess button').html($('#confirmPaymentFormSuccess').data('originaltext')).prop('disabled', false);
+                        $('#confirmPaymentFormFailure button').html($('#confirmPaymentFormFailure').data('originaltext')).prop('disabled', false);
+                    },
+                    complete: function() {
+                        // Không làm gì ở đây nữa vì đã xử lý enable/disable ở success/error
+                        // Chỉ reset nếu không có redirect
+                        if (!window.location.href.includes('Receipt') && !window.location.href.includes('Payment/Index')) {
+                             // Lưu trữ văn bản gốc của nút nếu chưa có
+                            if (!$('#confirmPaymentFormSuccess').data('originaltext')) {
+                                $('#confirmPaymentFormSuccess').data('originaltext', $('#confirmPaymentFormSuccess button').html());
+                            }
+                            if (!$('#confirmPaymentFormFailure').data('originaltext')) {
+                                $('#confirmPaymentFormFailure').data('originaltext', $('#confirmPaymentFormFailure button').html());
+                            }
+                        }
+                    }
+                });
+            });
+
+            // Lưu văn bản gốc của các nút khi trang tải xong
+            $('#confirmPaymentFormSuccess').data('originaltext', $('#confirmPaymentFormSuccess button').html());
+            $('#confirmPaymentFormFailure').data('originaltext', $('#confirmPaymentFormFailure button').html());
+        });
+    </script>
+}

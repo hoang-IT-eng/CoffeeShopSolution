@@ -100,9 +100,9 @@ namespace CoffeeShop.Data
             if (!context.MenuItemRecipes.Any())
             {
                 context.MenuItemRecipes.AddRange(
-                    new MenuItemRecipe { MenuItemId = espressoId, InventoryItemId = coffeeBeanId, QuantityRequired = 0.02m },
-                    new MenuItemRecipe { MenuItemId = cappuccinoId, InventoryItemId = coffeeBeanId, QuantityRequired = 0.02m },
-                    new MenuItemRecipe { MenuItemId = cappuccinoId, InventoryItemId = milkId, QuantityRequired = 0.1m }
+                    //new MenuItemRecipe { MenuItemId = espressoId, InventoryItemId = coffeeBeanId, QuantityRequired = 0.02m },
+                    //new MenuItemRecipe { MenuItemId = cappuccinoId, InventoryItemId = coffeeBeanId, QuantityRequired = 0.02m },
+                    //new MenuItemRecipe { MenuItemId = cappuccinoId, InventoryItemId = milkId, QuantityRequired = 0.1m }
                 );
                 await context.SaveChangesAsync();
             }

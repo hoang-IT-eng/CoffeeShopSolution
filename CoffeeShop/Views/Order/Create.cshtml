@@ -1,133 +1,165 @@
 ﻿@model CoffeeShop.Models.Order
 
-<h1>Tạo đơn hàng</h1>
+@{
+    ViewData["Title"] = "Tạo đơn hàng mới";
+}
+
+<h1>@ViewData["Title"]</h1>
+<hr />
 
 @if (!ViewData.ModelState.IsValid)
 {
-    <div class="alert alert-danger">
-        @foreach (var error in ViewData.ModelState.Values.SelectMany(v => v.Errors))
-        {
-            <p>@error.ErrorMessage</p>
-        }
+    <div class="alert alert-danger validation-summary-errors" data-valmsg-summary="true">
+        <span>Vui lòng sửa các lỗi sau:</span>
+        <ul>
+            @foreach (var error in ViewData.ModelState.Values.SelectMany(v => v.Errors))
+            {
+                <li>@error.ErrorMessage</li>
+            }
+        </ul>
     </div>
 }
 
-<style>
-    .order-detail {
-        display: flex;
-        align-items: center;
-        margin-bottom: 10px;
-        border: 1px solid #ddd;
-        padding: 10px;
-        border-radius: 5px;
-    }
-
-        .order-detail label {
-            margin-right: 10px;
-            font-weight: bold;
-        }
-
-        .order-detail select, .order-detail input {
-            margin-right: 15px;
-            width: 200px;
-        }
-
-    .remove-item {
-        background-color: #dc3545;
-        color: white;
-        border: none;
-        padding: 5px 10px;
-        border-radius: 5px;
-        cursor: pointer;
-    }
-
-        .remove-item:hover {
-            background-color: #c82333;
-        }
-
-    #addItem {
-        margin-top: 10px;
-    }
-</style>
 
 <form asp-action="Create" method="post">
-    <div class="form-group">
-        <label>Bàn</label>
-        <select asp-for="TableId" class="form-control">
-            <option value="">-- Chọn bàn --</option>
-            @foreach (var table in ViewBag.Tables)
-            {
-                <option value="@table.Id">@table.Name</option>
-            }
-        </select>
-        <span asp-validation-for="TableId" class="text-danger"></span>
-    </div>
+    <div asp-validation-summary="ModelOnly" class="text-danger"></div>
 
-    <div id="orderDetails">
-        <div class="form-group order-detail">
-            <label>Món</label>
-            <select name="OrderDetails[0].MenuItemId" class="form-control menu-item-select">
-                <option value="">-- Chọn món --</option>
-                @foreach (var item in ViewBag.MenuItems)
-                {
-                    <option value="@item.Id">@item.Name (@item.Price.ToString("C"))</option>
-                }
-            </select>
-            <label>Số lượng</label>
-            <input type="number" name="OrderDetails[0].Quantity" class="form-control" value="1" min="1" />
-            <button type="button" class="remove-item" style="display: none;">Xóa</button>
+    <div class="row">
+        <div class="col-md-6">
+            <div class="form-group mb-3">
+                <label asp-for="TableId" class="control-label">Bàn</label>
+                <select asp-for="TableId" class="form-control" asp-items="ViewBag.Tables" required>
+                    <option value="">-- Chọn bàn --</option>
+                </select>
+                <span asp-validation-for="TableId" class="text-danger"></span>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="form-group mb-3">
+                <label asp-for="CustomerName" class="control-label">Tên khách hàng</label>
+                <input asp-for="CustomerName" class="form-control" required />
+                <span asp-validation-for="CustomerName" class="text-danger"></span>
+            </div>
         </div>
     </div>
 
-    <button type="button" id="addItem" class="btn btn-secondary">Thêm món</button>
-    <button type="submit" class="btn btn-primary">Gửi đơn</button>
+    <h4 class="mt-4">Chi tiết đơn hàng</h4>
+    <div id="orderDetailsContainer">
+        @*
+            Nếu bạn muốn có một dòng chi tiết mặc định khi tải trang,
+            bạn có thể khởi tạo Model.OrderDetails với một phần tử trong Controller
+            và lặp qua nó ở đây. Hoặc thêm bằng JavaScript như bên dưới.
+            Để đơn giản, chúng ta sẽ thêm dòng đầu tiên bằng JavaScript.
+        *@
+    </div>
+
+    <div class="form-group mt-3">
+        <button type="button" id="addItemButton" class="btn btn-info">Thêm món</button>
+        <button type="submit" class="btn btn-primary">Tạo đơn hàng</button>
+        <a asp-action="Index" class="btn btn-secondary">Quay lại danh sách</a>
+    </div>
 </form>
 
+@* Template ẩn cho một dòng chi tiết đơn hàng *@
+<template id="orderDetailItemTemplate">
+    <div class="row order-detail-item mb-2 align-items-end">
+        <div class="col-md-5">
+            <label class="form-label small">Món</label>
+            <select name="OrderDetails[INDEX].MenuItemId" class="form-control menu-item-select" required>
+                <option value="">-- Chọn món --</option>
+                @if (ViewBag.MenuItems != null)
+                {
+                    foreach (var item in (IEnumerable<CoffeeShop.Models.MenuItem>)ViewBag.MenuItems)
+                    {
+                        <option value="@item.Id" data-price="@item.Price">@item.Name (@item.Price.ToString("N0"))</option>
+                    }
+                }
+            </select>
+        </div>
+        <div class="col-md-3">
+            <label class="form-label small">Số lượng</label>
+            <input type="number" name="OrderDetails[INDEX].Quantity" class="form-control quantity-input" value="1" min="1" required />
+        </div>
+        <div class="col-md-1">
+            <label class="form-label small d-block"> </label> @* Spacer for alignment *@
+            <button type="button" class="btn btn-danger btn-sm removeItemButton">Xóa</button>
+        </div>
+    </div>
+</template>
+
+
 @section Scripts {
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery-validate/1.19.5/jquery.validate.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery-validation-unobtrusive/4.0.0/jquery.validate.unobtrusive.min.js"></script>
+    @{
+        await Html.RenderPartialAsync("_ValidationScriptsPartial");
+    }
     <script>
-        // Chuyển danh sách MenuItems thành JSON
-        const menuItems = @Html.Raw(Json.Serialize(ViewBag.MenuItems));
+        $(document).ready(function () {
+            let detailIndex = 0;
+            const orderDetailsContainer = $("#orderDetailsContainer");
+            const templateHtml = $("#orderDetailItemTemplate").html();
 
-        let index = 1;
-        $("#addItem").click(function () {
-            let options = menuItems.map(item =>
-                `<option value="${item.Id}">${item.Name} (${item.Price.toLocaleString('vi-VN', { style: 'currency', currency: 'VND' })})</option>`
-            ).join('');
+            function addOrderDetailItem() {
+                // Thay thế INDEX bằng detailIndex hiện tại
+                let newItemHtml = templateHtml.replace(/INDEX/g, detailIndex.toString());
+                orderDetailsContainer.append(newItemHtml);
 
-            let html = `
-                <div class="form-group order-detail">
-                    <label>Món</label>
-                    <select name="OrderDetails[${index}].MenuItemId" class="form-control menu-item-select">
-                        <option value="">-- Chọn món --</option>
-                        ${options}
-                    </select>
-                    <label>Số lượng</label>
-                    <input type="number" name="OrderDetails[${index}].Quantity" class="form-control" value="1" min="1" />
-                    <button type="button" class="remove-item">Xóa</button>
-                </div>`;
-            $("#orderDetails").append(html);
-            index++;
-            updateRemoveButtons();
-        });
+                // Kích hoạt validation cho các element mới (nếu cần và dùng unobtrusive validation)
+                // var form = $("form");
+                // form.removeData("validator");
+                // form.removeData("unobtrusiveValidation");
+                // $.validator.unobtrusive.parse(form);
 
-        // Xử lý sự kiện xóa món
-        $(document).on("click", ".remove-item", function () {
-            $(this).closest(".order-detail").remove();
-            updateRemoveButtons();
-        });
-
-        // Ẩn nút Xóa nếu chỉ có 1 mục
-        function updateRemoveButtons() {
-            if ($(".order-detail").length === 1) {
-                $(".remove-item").hide();
-            } else {
-                $(".remove-item").show();
+                detailIndex++;
+                updateRemoveButtons();
             }
+
+            function updateRemoveButtons() {
+                if ($(".order-detail-item").length <= 1) {
+                    $(".removeItemButton").hide(); // Ẩn nút xóa nếu chỉ còn 1 item
+                } else {
+                    $(".removeItemButton").show();
+                }
+            }
+
+            $("#addItemButton").click(function () {
+                addOrderDetailItem();
+            });
+
+            // Xử lý sự kiện click cho nút xóa (dùng event delegation vì item được thêm động)
+            orderDetailsContainer.on("click", ".removeItemButton", function () {
+                $(this).closest(".order-detail-item").remove();
+                // Sau khi xóa, cập nhật lại index của các item còn lại để đảm bảo binding đúng
+                $(".order-detail-item").each(function (idx, elem) {
+                    $(elem).find("select, input").each(function() {
+                        let currentName = $(this).attr("name");
+                        if (currentName) {
+                            let newName = currentName.replace(/\[\d+\]/, "[" + idx + "]");
+                            $(this).attr("name", newName);
+                        }
+                    });
+                });
+                detailIndex = $(".order-detail-item").length; // Cập nhật lại detailIndex
+                updateRemoveButtons();
+            });
+
+            // Thêm một item mặc định khi trang tải
+            if ($(".order-detail-item").length === 0) {
+                 addOrderDetailItem();
+            }
+            updateRemoveButtons(); // Gọi để ẩn nút xóa nếu chỉ có 1 item ban đầu
+        });
+    </script>
+    <style>
+        .order-detail-item {
+            padding: 10px;
+            border: 1px solid #eee;
+            border-radius: 5px;
+            background-color: #f9f9f9;
         }
 
-        // Gọi lần đầu để thiết lập trạng thái nút Xóa
-        updateRemoveButtons();
-    </script>
+        .form-label.small {
+            font-size: 0.85em;
+            margin-bottom: 0.25rem;
+        }
+    </style>
 }

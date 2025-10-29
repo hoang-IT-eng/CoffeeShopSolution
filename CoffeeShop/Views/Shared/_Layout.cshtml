@@ -1,36 +1,553 @@
 ﻿<!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>@ViewData["Title"] - CoffeeShop</title>
-    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+    <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+    <style>
+        :root {
+            --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            --secondary-gradient: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            --coffee-gradient: linear-gradient(135deg, #8B4513 0%, #D2691E 50%, #F4A460 100%);
+            --glass-bg: rgba(255, 255, 255, 0.15);
+            --glass-border: rgba(255, 255, 255, 0.2);
+            --shadow-soft: 0 8px 32px rgba(31, 38, 135, 0.37);
+            --shadow-hover: 0 15px 35px rgba(31, 38, 135, 0.5);
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
+            background-attachment: fixed;
+            min-height: 100vh;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        /* Glassmorphism Navbar */
+        .navbar {
+            background: var(--glass-bg) !important;
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid var(--glass-border);
+            box-shadow: var(--shadow-soft);
+            transition: all 0.3s ease;
+        }
+
+        .navbar-brand {
+            font-weight: 800;
+            font-size: 1.8rem;
+            background: var(--coffee-gradient);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.1);
+            transition: all 0.3s ease;
+        }
+
+            .navbar-brand:hover {
+                transform: scale(1.05);
+                filter: brightness(1.2);
+            }
+
+        .navbar-nav .nav-link {
+            color: rgba(255, 255, 255, 0.9) !important;
+            font-weight: 500;
+            padding: 0.8rem 1.2rem !important;
+            border-radius: 25px;
+            margin: 0 0.2rem;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+            .navbar-nav .nav-link::before {
+                content: '';
+                position: absolute;
+                top: 0;
+                left: -100%;
+                width: 100%;
+                height: 100%;
+                background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+                transition: left 0.5s;
+            }
+
+            .navbar-nav .nav-link:hover::before {
+                left: 100%;
+            }
+
+            .navbar-nav .nav-link:hover {
+                color: #fff !important;
+                background: rgba(255, 255, 255, 0.2);
+                transform: translateY(-2px);
+                box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+            }
+
+            .navbar-nav .nav-link i {
+                margin-right: 0.5rem;
+                transition: transform 0.3s ease;
+            }
+
+            .navbar-nav .nav-link:hover i {
+                transform: rotate(360deg);
+            }
+
+        /* Main Container */
+        .main-container {
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid var(--glass-border);
+            border-radius: 20px;
+            box-shadow: var(--shadow-soft);
+            margin: 2rem 0;
+            padding: 2rem;
+            min-height: calc(100vh - 200px);
+            transition: all 0.3s ease;
+        }
+
+            .main-container:hover {
+                box-shadow: var(--shadow-hover);
+            }
+
+        /* Cards Enhancement */
+        .card {
+            background: var(--glass-bg) !important;
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid var(--glass-border) !important;
+            border-radius: 15px !important;
+            box-shadow: var(--shadow-soft) !important;
+            transition: all 0.3s ease;
+        }
+
+            .card:hover {
+                transform: translateY(-5px) scale(1.02);
+                box-shadow: var(--shadow-hover) !important;
+            }
+
+        .card-header {
+            background: rgba(255, 255, 255, 0.1) !important;
+            border-bottom: 1px solid var(--glass-border) !important;
+            border-radius: 15px 15px 0 0 !important;
+        }
+
+        /* Buttons */
+        .btn-primary {
+            background: var(--primary-gradient) !important;
+            border: none !important;
+            border-radius: 25px !important;
+            padding: 0.75rem 2rem !important;
+            font-weight: 600 !important;
+            text-transform: uppercase !important;
+            letter-spacing: 1px !important;
+            transition: all 0.3s ease !important;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4) !important;
+        }
+
+            .btn-primary:hover {
+                transform: translateY(-2px) !important;
+                box-shadow: 0 8px 25px rgba(102, 126, 234, 0.6) !important;
+                filter: brightness(1.1) !important;
+            }
+
+        .btn-success {
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%) !important;
+            border: none !important;
+            border-radius: 25px !important;
+            box-shadow: 0 4px 15px rgba(17, 153, 142, 0.4) !important;
+        }
+
+        .btn-danger {
+            background: var(--secondary-gradient) !important;
+            border: none !important;
+            border-radius: 25px !important;
+            box-shadow: 0 4px 15px rgba(240, 147, 251, 0.4) !important;
+        }
+
+        .btn-warning {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%) !important;
+            border: none !important;
+            border-radius: 25px !important;
+            box-shadow: 0 4px 15px rgba(245, 87, 108, 0.4) !important;
+        }
+
+        /* Alerts */
+        .alert {
+            background: var(--glass-bg) !important;
+            backdrop-filter: blur(20px) !important;
+            -webkit-backdrop-filter: blur(20px) !important;
+            border: 1px solid var(--glass-border) !important;
+            border-radius: 15px !important;
+            color: #fff !important;
+            box-shadow: var(--shadow-soft) !important;
+        }
+
+        .alert-success {
+            border-left: 4px solid #38ef7d !important;
+        }
+
+        .alert-danger {
+            border-left: 4px solid #f5576c !important;
+        }
+
+        /* Footer */
+        .footer {
+            background: var(--glass-bg) !important;
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid var(--glass-border);
+            border-radius: 20px 20px 0 0;
+            color: rgba(255, 255, 255, 0.8) !important;
+            margin-top: 2rem;
+            box-shadow: var(--shadow-soft);
+        }
+
+            .footer a {
+                color: rgba(255, 255, 255, 0.9) !important;
+                text-decoration: none;
+                transition: all 0.3s ease;
+            }
+
+                .footer a:hover {
+                    color: #fff !important;
+                    text-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
+                }
+
+        /* Form Controls */
+        .form-control, .form-select {
+            background: var(--glass-bg) !important;
+            backdrop-filter: blur(20px) !important;
+            -webkit-backdrop-filter: blur(20px) !important;
+            border: 1px solid var(--glass-border) !important;
+            border-radius: 15px !important;
+            color: #fff !important;
+            transition: all 0.3s ease !important;
+        }
+
+            .form-control:focus, .form-select:focus {
+                background: rgba(255, 255, 255, 0.2) !important;
+                border-color: rgba(255, 255, 255, 0.5) !important;
+                box-shadow: 0 0 20px rgba(102, 126, 234, 0.3) !important;
+                color: #fff !important;
+            }
+
+            .form-control::placeholder {
+                color: rgba(255, 255, 255, 0.7) !important;
+            }
+
+        /* Table */
+        /* Table - CSS cải thiện */
+        .table {
+            background: rgba(0, 0, 0, 0.3) !important; /* Nền tối hơn để tương phản */
+            backdrop-filter: blur(20px) !important;
+            -webkit-backdrop-filter: blur(20px) !important;
+            border-radius: 15px !important;
+            overflow: hidden !important;
+            color: #fff !important;
+            border: 1px solid rgba(255, 255, 255, 0.2) !important;
+        }
+
+            .table th {
+                background: rgba(0, 0, 0, 0.4) !important; /* Header tối hơn */
+                border-color: rgba(255, 255, 255, 0.2) !important;
+                color: #fff !important;
+                font-weight: 600 !important;
+                text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
+            }
+
+            .table td {
+                border-color: rgba(255, 255, 255, 0.1) !important;
+                color: rgba(255, 255, 255, 0.95) !important; /* Chữ trắng rõ ràng hơn */
+                background: rgba(0, 0, 0, 0.2) !important; /* Nền ô tối nhẹ */
+            }
+
+            .table tbody tr:hover {
+                background: rgba(255, 255, 255, 0.15) !important; /* Hover sáng hơn */
+            }
+
+                .table tbody tr:hover td {
+                    color: #fff !important;
+                    text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);
+                }
+
+            /* Thêm style cho các trường hợp đặc biệt */
+            .table .badge {
+                background: rgba(0, 0, 0, 0.3) !important;
+                color: #fff !important;
+                border: 1px solid rgba(255, 255, 255, 0.3);
+            }
+
+            .table .btn-sm {
+                background: rgba(0, 0, 0, 0.4) !important;
+                border: 1px solid rgba(255, 255, 255, 0.3) !important;
+                color: #fff !important;
+            }
+        /* Loading Animation */
+        @@keyframes pulse {
+            0%
+
+        {
+            opacity: 1;
+        }
+
+        50% {
+            opacity: 0.5;
+        }
+
+        100% {
+            opacity: 1;
+        }
+
+        }
+
+        .loading {
+            animation: pulse 2s infinite;
+        }
+
+        /* Responsive */
+        @@media (max-width: 768px) {
+            .navbar-nav .nav-link
+
+        {
+            text-align: center;
+            margin: 0.2rem 0;
+        }
+
+        .main-container {
+            margin: 1rem 0;
+            padding: 1rem;
+        }
+
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--primary-gradient);
+            border-radius: 10px;
+        }
+
+            ::-webkit-scrollbar-thumb:hover {
+                background: var(--secondary-gradient);
+            }
+
+        /* Text Colors */
+        .text-white-custom {
+            color: rgba(255, 255, 255, 0.9) !important;
+        }
+
+        .text-muted-custom {
+            color: rgba(255, 255, 255, 0.7) !important;
+        }
+
+        h1, h2, h3, h4, h5, h6 {
+            color: #fff !important;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.1);
+        }
+
+        p, span, div {
+            color: rgba(255, 255, 255, 0.9);
+        }
+    </style>
 </head>
 <body>
     <header>
-        <nav class="navbar navbar-expand-sm navbar-dark bg-dark">
-            <a class="navbar-brand" asp-area="" asp-controller="Home" asp-action="Index">CoffeeShop</a>
-            <div class="navbar-nav">
-                <a class="nav-link" asp-area="" asp-controller="Home" asp-action="Index">Trang chủ</a>
-                <a class="nav-link" asp-area="" asp-controller="Order" asp-action="Index">Đơn hàng</a>
-                <a class="nav-link" asp-area="" asp-controller="Table" asp-action="FloorPlan">Sơ đồ bàn</a>
-                @if (User.IsInRole("Admin"))
-                {
-                    <a class="nav-link" asp-area="" asp-controller="MenuItem" asp-action="Index">Quản lý món</a>
-                    <a class="nav-link" asp-area="" asp-controller="Report" asp-action="Sales">Báo cáo</a>
-                }
+        <nav class="navbar navbar-expand-lg navbar-dark">
+            <div class="container">
+                <a class="navbar-brand" asp-controller="Home" asp-action="Index">
+                    <i class="fas fa-coffee me-2"></i>CoffeeShop
+                </a>
+                <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target=".navbar-collapse" aria-controls="navbarSupportedContent"
+                        aria-expanded="false" aria-label="Toggle navigation">
+                    <span class="navbar-toggler-icon"></span>
+                </button>
+                <div class="navbar-collapse collapse d-lg-inline-flex justify-content-between">
+                    <ul class="navbar-nav flex-grow-1">
+                        <li class="nav-item">
+                            <a class="nav-link" asp-controller="Home" asp-action="Index">
+                                <i class="fas fa-home"></i>Trang chủ
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" asp-controller="Order" asp-action="Index">
+                                <i class="fas fa-shopping-cart"></i>Đơn hàng
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" asp-controller="Table" asp-action="Index">
+                                <i class="fas fa-chair"></i>Sơ đồ bàn
+                            </a>
+                        </li>
+
+                        @if (User.IsInRole("Admin") || User.IsInRole("Cashier"))
+                        {
+                            <li class="nav-item">
+                                <a class="nav-link" asp-controller="Payment" asp-action="Index">
+                                    <i class="fas fa-credit-card"></i>Thanh toán
+                                </a>
+                            </li>
+                           
+                        }
+
+                        @if (User.IsInRole("Admin"))
+                        {
+                            <li class="nav-item">
+                                <a class="nav-link" asp-controller="MenuItem" asp-action="Index">
+                                    <i class="fas fa-utensils"></i>Thực đơn
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link" asp-controller="Report" asp-action="Sales">
+                                    <i class="fas fa-chart-bar"></i>Báo cáo
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link" asp-controller="User" asp-action="Index">
+                                    <i class="fas fa-user-cog"></i>Người dùng
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link" asp-controller="Inventory" asp-action="Index">
+                                    <i class="fas fa-warehouse"></i>Quản lý kho
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link" asp-controller="Customer" asp-action="Index">
+                                    <i class="fas fa-users"></i>Khách hàng
+                                </a>
+                            </li>
+                        }
+                        <li class="nav-item">
+                            <a class="nav-link" asp-controller="Dashboard" asp-action="Index">
+                                <i class="fas fa-tachometer-alt"></i>Tổng quan
+                            </a>
+                        </li>
+                    </ul>
+                    <ul class="navbar-nav">
+                        @if (User.Identity.IsAuthenticated)
+                        {
+                            <li class="nav-item">
+                                <span class="nav-link">
+                                    <i class="fas fa-user-circle me-2"></i>@(User.FindFirst(System.Security.Claims.ClaimTypes.Name)?.Value)
+                                </span>
+                            </li>
+                            <li class="nav-item">
+                                <form asp-controller="Account" asp-action="Logout" method="post" class="d-inline">
+                                    <button type="submit" class="nav-link btn btn-link">
+                                        <i class="fas fa-sign-out-alt"></i>Đăng xuất
+                                    </button>
+                                </form>
+                            </li>
+                        }
+                        else
+                        {
+                            <li class="nav-item">
+                                <a class="nav-link" asp-controller="Account" asp-action="Login">
+                                    <i class="fas fa-sign-in-alt"></i>Đăng nhập
+                                </a>
+                            </li>
+                        }
+                    </ul>
+                </div>
             </div>
-            <partial name="_LoginPartial" />
         </nav>
     </header>
+
     <div class="container">
-        <main role="main" class="pb-3">
-            @RenderBody()
-        </main>
+        @if (TempData["SuccessMessage"] != null)
+        {
+            <div class="alert alert-success alert-dismissible fade show mt-3" role="alert">
+                <i class="fas fa-check-circle me-2"></i>@TempData["SuccessMessage"]
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+        }
+        @if (TempData["ErrorMessage"] != null)
+        {
+            <div class="alert alert-danger alert-dismissible fade show mt-3" role="alert">
+                <i class="fas fa-exclamation-circle me-2"></i>@TempData["ErrorMessage"]
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+        }
+
+        <div class="main-container">
+            <main role="main">
+                @RenderBody()
+            </main>
+        </div>
     </div>
 
-    <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
-    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+    <footer class="footer text-center">
+        <div class="container py-4">
+            <div class="row">
+                <div class="col-md-6">
+                    <p class="mb-0">
+                        <i class="fas fa-copyright me-2"></i>2025 - CoffeeShop Management System
+                    </p>
+                </div>
+                <div class="col-md-6">
+                    <p class="mb-0">
+                        <a asp-controller="Home" asp-action="Privacy">
+                            <i class="fas fa-shield-alt me-2"></i>Privacy Policy
+                        </a>
+                    </p>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+
+    <script>
+        // Add loading animation to buttons on click
+        document.querySelectorAll('.btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                if (!this.classList.contains('no-loading')) {
+                    this.classList.add('loading');
+                    setTimeout(() => {
+                        this.classList.remove('loading');
+                    }, 2000);
+                }
+            });
+        });
+
+        // Smooth scroll for anchor links
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                e.preventDefault();
+                const target = document.querySelector(this.getAttribute('href'));
+                if (target) {
+                    target.scrollIntoView({
+                        behavior: 'smooth',
+                        block: 'start'
+                    });
+                }
+            });
+        });
+
+        // Auto-hide alerts after 5 seconds
+        setTimeout(() => {
+            document.querySelectorAll('.alert').forEach(alert => {
+                const bsAlert = new bootstrap.Alert(alert);
+                bsAlert.close();
+            });
+        }, 5000);
+    </script>
+
     @await RenderSectionAsync("Scripts", required: false)
 </body>
 </html>

@@ -1,0 +1,66 @@
+﻿@model CoffeeShop.Models.Order
+
+<div class="container">
+    <div class="row">
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header">
+                    <h3>Chi tiết đơn hàng #@Model.Id</h3>
+                    <span class="badge bg-info">@Model.Status</span>
+                </div>
+                <div class="card-body">
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <strong>Bàn:</strong> @Model.Table?.Name
+                        </div>
+                        <div class="col-md-6">
+                            <strong>Khách hàng:</strong> @Model.CustomerName
+                        </div>
+                    </div>
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <strong>Thời gian tạo:</strong> @Model.CreatedAt.ToString("dd/MM/yyyy HH:mm")
+                        </div>
+                        <div class="col-md-6">
+                            <strong>Tổng tiền:</strong> <span class="text-primary">@Model.Total.ToString("C")</span>
+                        </div>
+                    </div>
+
+                    <h5>Chi tiết món:</h5>
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th>Món</th>
+                                <th>Số lượng</th>
+                                <th>Đơn giá</th>
+                                <th>Thành tiền</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var detail in Model.OrderDetails)
+                            {
+                                <tr>
+                                    <td>@detail.MenuItem?.Name</td>
+                                    <td>@detail.Quantity</td>
+                                    <td>@detail.Price.ToString("C")</td>
+                                    <td>@((detail.Price * detail.Quantity).ToString("C"))</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+                <div class="card-footer">
+                    <a asp-action="Index" class="btn btn-secondary">Quay lại</a>
+                    @if (Model.Status != "Completed")
+                    {
+                        <form asp-action="UpdateStatus" method="post" class="d-inline">
+                            <input type="hidden" name="id" value="@Model.Id" />
+                            <input type="hidden" name="status" value="Ready" />
+                            <button type="submit" class="btn btn-success">Đánh dấu hoàn thành</button>
+                        </form>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+</div>

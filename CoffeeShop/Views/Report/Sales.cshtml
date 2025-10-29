@@ -1,0 +1,130 @@
+﻿@model CoffeeShop.Models.ReportViewModel
+
+<h1>Báo cáo doanh thu</h1>
+
+<h2>Doanh thu theo ngày</h2>
+<canvas id="dailySalesChart" width="400" height="200"></canvas>
+@if (Model.DailySales != null && Model.DailySales.Any())
+{
+    <table class="table">
+        <thead>
+            <tr>
+                <th>Ngày</th>
+                <th>Tổng doanh thu</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var sale in Model.DailySales)
+            {
+                <tr>
+                    <td>@sale.Date.ToString("dd/MM/yyyy")</td>
+                    <td>@sale.Total.ToString("C")</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+else
+{
+    <p>Không có dữ liệu doanh thu theo ngày.</p>
+}
+
+<h2>Doanh thu theo phương thức thanh toán</h2>
+<canvas id="paymentMethodsChart" width="400" height="200"></canvas>
+@if (Model.PaymentMethods != null && Model.PaymentMethods.Any())
+{
+    <table class="table">
+        <thead>
+            <tr>
+                <th>Phương thức</th>
+                <th>Tổng tiền</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var method in Model.PaymentMethods)
+            {
+                <tr>
+                    <td>@method.Method</td>
+                    <td>@method.Total.ToString("C")</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+else
+{
+    <p>Không có dữ liệu phương thức thanh toán.</p>
+}
+
+@section Scripts {
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        // Biểu đồ doanh thu theo ngày
+        const dailySalesData = {
+            labels: [@foreach (var sale in Model.DailySales)
+        {
+            <text>'@sale.Date.ToString("dd/MM/yyyy")',</text>
+        }],
+            datasets: [{
+                label: 'Doanh thu (VND)',
+                data: [@foreach (var sale in Model.DailySales)
+        {
+            <text>@sale.Total,</text>
+        }],
+                backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                borderColor: 'rgba(54, 162, 235, 1)',
+                borderWidth: 1
+            }]
+        };
+
+        const dailySalesChart = new Chart(document.getElementById('dailySalesChart'), {
+            type: 'line',
+            data: dailySalesData,
+            options: {
+                scales: {
+                    y: {
+                        beginAtZero: true
+                    }
+                }
+            }
+        });
+
+        // Biểu đồ doanh thu theo phương thức thanh toán
+        const paymentMethodsData = {
+            labels: [@foreach (var method in Model.PaymentMethods)
+        {
+            <text>'@method.Method',</text>
+        }],
+            datasets: [{
+                label: 'Doanh thu (VND)',
+                data: [@foreach (var method in Model.PaymentMethods)
+        {
+            <text>@method.Total,</text>
+        }],
+                backgroundColor: [
+                    'rgba(255, 99, 132, 0.2)',
+                    'rgba(54, 162, 235, 0.2)',
+                    'rgba(255, 206, 86, 0.2)'
+                ],
+                borderColor: [
+                    'rgba(255, 99, 132, 1)',
+                    'rgba(54, 162, 235, 1)',
+                    'rgba(255, 206, 86, 1)'
+                ],
+                borderWidth: 1
+            }]
+        };
+
+        const paymentMethodsChart = new Chart(document.getElementById('paymentMethodsChart'), {
+            type: 'bar',
+            data: paymentMethodsData,
+            options: {
+                scales: {
+                    y: {
+                        beginAtZero: true
+                    }
+                }
+            }
+        });
+    </script>
+}

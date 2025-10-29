@@ -1,0 +1,95 @@
+﻿@* Views/Payment/Receipt.cshtml *@
+@model CoffeeShop.Models.Payment
+
+@{
+    ViewData["Title"] = "Hóa đơn thanh toán";
+}
+
+
+
+<div class="container">
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header">
+                    <h3><i class="fas fa-receipt"></i> Hóa đơn #@Model.Id</h3>
+                </div>
+                <div class="card-body">
+                    <!-- ... (Phần thông tin thanh toán, đơn hàng, chi tiết món như cũ) ... -->
+                    <h5>Thông tin thanh toán</h5>
+                    <table class="table table-sm">
+                        <tr><td><strong>Mã giao dịch:</strong></td><td>@Model.Id</td></tr>
+                        <tr><td><strong>Phương thức:</strong></td><td>@Model.PaymentMethod</td></tr>
+                        <tr><td><strong>Thời gian:</strong></td><td>@Model.PaymentDate.ToString("dd/MM/yyyy HH:mm")</td></tr>
+                        <tr><td><strong>Trạng thái:</strong></td><td><span class="badge bg-success">@Model.Status</span></td></tr>
+                        <tr><td><strong>Thông tin khách hàng:</strong></td><td>@(Model.CustomerInfo ?? "Không xác định")</td></tr>
+                        @if (Model.CustomerId.HasValue)
+                        {
+                            <tr><td><strong>Khách hàng thành viên:</strong></td><td>@Model.Customer?.Name</td></tr>
+                            <tr><td><strong>Điểm tích lũy:</strong></td><td>@Model.PointsEarned điểm</td></tr>
+                        }
+                    </table>
+
+                    <h5>Thông tin đơn hàng</h5>
+                    <table class="table table-sm">
+                        <tr><td><strong>Mã đơn hàng:</strong></td><td>@Model.OrderId</td></tr>
+                        <tr><td><strong>Bàn:</strong></td><td>@(Model.Order?.Table?.Name ?? "Không xác định")</td></tr>
+                        <tr><td><strong>Khách hàng:</strong></td><td>@Model.Order?.CustomerName</td></tr>
+                        <tr><td><strong>Thời gian:</strong></td><td>@Model.Order?.CreatedAt.ToString("dd/MM/yyyy HH:mm")</td></tr>
+                    </table>
+
+                    <h5>Chi tiết món</h5>
+                    @if (Model.Order?.OrderDetails?.Any() == true)
+                    {
+                        <div class="table-responsive">
+                            <table class="table table-sm">
+                                <thead>
+                                    <tr>
+                                        <th>Món</th>
+                                        <th class="text-center">Số lượng</th>
+                                        <th class="text-end">Giá</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var detail in Model.Order.OrderDetails)
+                                    {
+                                        <tr>
+                                            <td>@(detail.MenuItem?.Name ?? "N/A")</td>
+                                            <td class="text-center">x @detail.Quantity</td>
+                                            <td class="text-end">@((detail.Price * detail.Quantity).ToString("C", new System.Globalization.CultureInfo("vi-VN")))</td>
+                                        </tr>
+                                    }
+                                    <tr class="table-active">
+                                        <td colspan="2"><strong>Tổng cộng:</strong></td>
+                                        <td class="text-end"><strong>@Model.Order?.Total.ToString("C", new System.Globalization.CultureInfo("vi-VN"))</strong></td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                    else
+                    {
+                        <p class="text-muted">Không có chi tiết món</p>
+                    }
+
+                    <!-- Nút quay lại và xuất file text -->
+                    <div class="d-flex justify-content-between mt-3">
+                        <a asp-action="Index" class="btn btn-secondary">
+                            <i class="fas fa-arrow-left"></i> Quay lại
+                        </a>
+                        @* THAY ĐỔI NÚT Ở ĐÂY *@
+                        <a asp-action="ExportReceiptAsText" asp-route-paymentId="@Model.Id" class="btn btn-info"> @* Đổi btn-primary thành btn-info hoặc màu khác nếu muốn *@
+                            <i class="fas fa-file-alt"></i> Xuất file Text
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        // Có thể thêm script để xử lý in hóa đơn
+    </script>
+}

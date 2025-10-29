@@ -1,0 +1,232 @@
+﻿@model object
+
+<h1>Dashboard - Tổng quan hệ thống</h1>
+
+<div class="container-fluid">
+    <!-- Cards thống kê chính -->
+    <div class="row mb-4">
+        <div class="col-md-3">
+            <div class="card bg-primary text-white">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <h6>Doanh thu hôm nay</h6>
+                            <h4>@ViewBag.DailyRevenue.ToString("C0", new System.Globalization.CultureInfo("vi-VN"))</h4>
+                        </div>
+                        <i class="fas fa-money-bill-wave fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card bg-success text-white">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <h6>Đơn hàng mới</h6>
+                            <h4>@ViewBag.NewOrders</h4>
+                        </div>
+                        <i class="fas fa-shopping-cart fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card bg-info text-white">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <h6>Bàn đang phục vụ</h6>
+                            <h4>@ViewBag.TablesInUse</h4>
+                        </div>
+                        <i class="fas fa-utensils fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card bg-warning text-white">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <h6>Cảnh báo kho</h6>
+                            <h4>@ViewBag.TotalWarnings</h4>
+                            <small>vấn đề cần xử lý</small>
+                        </div>
+                        <i class="fas fa-exclamation-triangle fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Cảnh báo quản lý kho -->
+    @if (ViewBag.TotalWarnings > 0)
+    {
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="alert alert-warning">
+                    <h5><i class="fas fa-exclamation-triangle"></i> Cảnh báo quản lý kho</h5>
+                    <p>Có @ViewBag.TotalWarnings vấn đề cần được xử lý ngay lập tức!</p>
+                </div>
+            </div>
+        </div>
+    }
+
+    <div class="row mb-4">
+        <!-- Nguyên liệu thiếu -->
+        @if (((List<CoffeeShop.Models.InventoryItem>)ViewBag.LowStockItems).Any())
+        {
+            <div class="col-md-4">
+                <div class="card border-warning">
+                    <div class="card-header bg-warning text-dark">
+                        <h6><i class="fas fa-exclamation-triangle"></i> Nguyên liệu thiếu (@((List<CoffeeShop.Models.InventoryItem>)ViewBag.LowStockItems).Count)</h6>
+                    </div>
+                    <div class="card-body" style="max-height: 300px; overflow-y: auto;">
+                        @foreach (var item in (List<CoffeeShop.Models.InventoryItem>)ViewBag.LowStockItems)
+                        {
+                            <div class="alert alert-warning py-2 mb-2">
+                                <strong>@item.Name</strong><br>
+                                <small>Hiện có: <span class="text-danger">@item.Quantity @item.Unit</span></small><br>
+                                <small>Ngưỡng tối thiểu: @item.MinimumThreshold @item.Unit</small>
+                            </div>
+                        }
+                        <a href="/Inventory" class="btn btn-warning btn-sm w-100">
+                            <i class="fas fa-plus"></i> Nhập kho ngay
+                        </a>
+                    </div>
+                </div>
+            </div>
+        }
+
+        <!-- Nguyên liệu sắp hết hạn -->
+        @if (((List<CoffeeShop.Models.InventoryItem>)ViewBag.NearExpiryItems).Any())
+        {
+            <div class="col-md-4">
+                <div class="card border-info">
+                    <div class="card-header bg-info text-white">
+                        <h6><i class="fas fa-clock"></i> Sắp hết hạn (@((List<CoffeeShop.Models.InventoryItem>)ViewBag.NearExpiryItems).Count)</h6>
+                    </div>
+                    <div class="card-body" style="max-height: 300px; overflow-y: auto;">
+                        @foreach (var item in (List<CoffeeShop.Models.InventoryItem>)ViewBag.NearExpiryItems)
+                        {
+                            <div class="alert alert-info py-2 mb-2">
+                                <strong>@item.Name</strong><br>
+                                <small>Số lượng: @item.Quantity @item.Unit</small><br>
+                                <small>Hết hạn: <span class="text-warning">@item.ExpirationDate.ToString("dd/MM/yyyy")</span></small>
+                            </div>
+                        }
+                        <a href="/Inventory?beforeDate=@DateTime.Today.AddDays(7).ToString("yyyy-MM-dd")" class="btn btn-info btn-sm w-100">
+                            <i class="fas fa-eye"></i> Xem chi tiết
+                        </a>
+                    </div>
+                </div>
+            </div>
+        }
+
+        <!-- Nguyên liệu hết hạn -->
+        @if (((List<CoffeeShop.Models.InventoryItem>)ViewBag.ExpiredItems).Any())
+        {
+            <div class="col-md-4">
+                <div class="card border-danger">
+                    <div class="card-header bg-danger text-white">
+                        <h6><i class="fas fa-times-circle"></i> Đã hết hạn (@((List<CoffeeShop.Models.InventoryItem>)ViewBag.ExpiredItems).Count)</h6>
+                    </div>
+                    <div class="card-body" style="max-height: 300px; overflow-y: auto;">
+                        @foreach (var item in (List<CoffeeShop.Models.InventoryItem>)ViewBag.ExpiredItems)
+                        {
+                            <div class="alert alert-danger py-2 mb-2">
+                                <strong>@item.Name</strong><br>
+                                <small>Số lượng: @item.Quantity @item.Unit</small><br>
+                                <small>Hết hạn: <span class="text-danger">@item.ExpirationDate.ToString("dd/MM/yyyy")</span></small>
+                            </div>
+                        }
+                        <a href="/Inventory" class="btn btn-danger btn-sm w-100">
+                            <i class="fas fa-trash"></i> Xử lý ngay
+                        </a>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+
+    <!-- Biểu đồ doanh thu -->
+    <div class="row">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5><i class="fas fa-chart-line"></i> Biểu đồ doanh thu 7 ngày qua</h5>
+                </div>
+                <div class="card-body">
+                    <canvas id="revenueChart" height="100"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        const ctx = document.getElementById('revenueChart').getContext('2d');
+        const revenueChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: [@Html.Raw(ViewBag.ChartLabels)],
+                datasets: [{
+                    label: 'Doanh thu (VND)',
+                    data: [@Html.Raw(ViewBag.ChartData)],
+                    borderColor: 'rgba(54, 162, 235, 1)',
+                    backgroundColor: 'rgba(54, 162, 235, 0.1)',
+                    borderWidth: 3,
+                    fill: true,
+                    tension: 0.4,
+                    pointBackgroundColor: 'rgba(54, 162, 235, 1)',
+                    pointBorderColor: '#fff',
+                    pointBorderWidth: 2,
+                    pointRadius: 6
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        ticks: {
+                            callback: function(value) {
+                                return new Intl.NumberFormat('vi-VN', {
+                                    style: 'currency',
+                                    currency: 'VND'
+                                }).format(value);
+                            }
+                        }
+                    }
+                },
+                plugins: {
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                return 'Doanh thu: ' + new Intl.NumberFormat('vi-VN', {
+                                    style: 'currency',
+                                    currency: 'VND'
+                                }).format(context.parsed.y);
+                            }
+                        }
+                    },
+                    legend: {
+                        display: true,
+                        position: 'top'
+                    }
+                }
+            }
+        });
+
+        // Auto refresh warnings every 5 minutes
+        setInterval(function() {
+            if (@ViewBag.TotalWarnings > 0) {
+                location.reload();
+            }
+        }, 300000); // 5 minutes
+    </script>
+}

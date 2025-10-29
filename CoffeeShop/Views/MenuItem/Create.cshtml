@@ -1,33 +1,134 @@
-﻿@model CoffeeShop.Models.MenuItem
+﻿@model CoffeeShop.ViewModels.MenuItemViewModel
 
-<h1>Thêm món mới</h1>
+@{
+    ViewData["Title"] = Model?.Id > 0 ? "Edit Menu Item" : "Create Menu Item";
+}
 
-<form asp-action="Create" method="post">
-    <div class="form-group">
-        <label asp-for="Name"></label>
-        <input asp-for="Name" class="form-control" />
-        <span asp-validation-for="Name" class="text-danger"></span>
+<h1>@ViewData["Title"]</h1>
+
+<h4>Menu Item</h4>
+<hr />
+<div class="row">
+    <div class="col-md-8">
+        <form asp-action="@(Model?.Id > 0 ? "Edit" : "Create")" method="post">
+            <div asp-validation-summary="ModelOnly" class="text-danger"></div>
+            @if (Model?.Id > 0)
+            {
+                <input type="hidden" asp-for="Id" />
+            }
+
+            <div class="form-group">
+                <label asp-for="Name" class="control-label"></label>
+                <input asp-for="Name" class="form-control" />
+                <span asp-validation-for="Name" class="text-danger"></span>
+            </div>
+            <div class="form-group">
+                <label asp-for="Price" class="control-label"></label>
+                <input asp-for="Price" class="form-control" type="number" step="0.01" />
+                <span asp-validation-for="Price" class="text-danger"></span>
+            </div>
+            <div class="form-group">
+                <label asp-for="Description" class="control-label"></label>
+                <textarea asp-for="Description" class="form-control"></textarea>
+                <span asp-validation-for="Description" class="text-danger"></span>
+            </div>
+            <div class="form-group">
+                <label asp-for="ImageUrl" class="control-label"></label>
+                <input asp-for="ImageUrl" class="form-control" />
+                <span asp-validation-for="ImageUrl" class="text-danger"></span>
+            </div>
+            <div class="form-group">
+                <label asp-for="Category" class="control-label"></label>
+                <input asp-for="Category" class="form-control" />
+                <span asp-validation-for="Category" class="text-danger"></span>
+            </div>
+            <div class="form-group form-check">
+                <label class="form-check-label">
+                    <input class="form-check-input" asp-for="IsAvailable" /> @Html.DisplayNameFor(model => model.IsAvailable)
+                </label>
+            </div>
+
+            <hr />
+            <h4>Recipes</h4>
+            <div id="recipesContainer">
+                @for (int i = 0; i < Model.Recipes.Count; i++)
+                {
+                    <div class="recipe-item row mb-2">
+                        <input type="hidden" asp-for="Recipes[i].InventoryItemName" /> @* Not strictly needed for postback if ID is there *@
+                        <div class="col-md-5">
+                            <label>Ingredient</label>
+                            <select asp-for="Recipes[i].InventoryItemId" asp-items="ViewBag.InventoryItems" class="form-control recipe-ingredient-select">
+                                <option value="">-- Select Ingredient --</option>
+                            </select>
+                            <span asp-validation-for="Recipes[i].InventoryItemId" class="text-danger"></span>
+                        </div>
+                        <div class="col-md-4">
+                            <label>Quantity Required</label>
+                            <input asp-for="Recipes[i].QuantityRequired" class="form-control" type="number" step="any" />
+                            <span asp-validation-for="Recipes[i].QuantityRequired" class="text-danger"></span>
+                        </div>
+                        <div class="col-md-2 align-self-end">
+                            <button type="button" class="btn btn-danger remove-recipe-btn">Remove</button>
+                        </div>
+                    </div>
+                }
+            </div>
+            <button type="button" id="addRecipeBtn" class="btn btn-success mt-2 mb-3">Add Ingredient</button>
+
+            <div class="form-group mt-3">
+                <input type="submit" value="@(Model?.Id > 0 ? "Save Changes" : "Create")" class="btn btn-primary" />
+                <a asp-action="Index" class="btn btn-secondary">Back to List</a>
+            </div>
+        </form>
     </div>
-    <div class="form-group">
-        <label asp-for="Price"></label>
-        <input asp-for="Price" class="form-control" />
-        <span asp-validation-for="Price" class="text-danger"></span>
-    </div>
-    <div class="form-group">
-        <label asp-for="Category"></label>
-        <input asp-for="Category" class="form-control" />
-        <span asp-validation-for="Category" class="text-danger"></span>
-    </div>
-    <div class="form-group">
-        <label asp-for="ImageUrl"></label>
-        <input asp-for="ImageUrl" class="form-control" />
-        <span asp-validation-for="ImageUrl" class="text-danger"></span>
-    </div>
-    <button type="submit" class="btn btn-primary">Thêm</button>
-    <a asp-action="Index" class="btn btn-secondary">Quay lại</a>
-</form>
+</div>
 
 @section Scripts {
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery-validate/1.19.5/jquery.validate.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery-validation-unobtrusive/4.0.0/jquery.validate.unobtrusive.min.js"></script>
+    @{
+        await Html.RenderPartialAsync("_ValidationScriptsPartial");
+    }
+    <script>
+        $(document).ready(function () {
+            let recipeIndex = @Model.Recipes.Count; // Start index based on existing recipes for Edit, 0 for Create
+
+            $("#addRecipeBtn").click(function () {
+                const recipeItemHtml = `
+                    <div class="recipe-item row mb-2">
+                        <div class="col-md-5">
+                            <label>Ingredient</label>
+                            <select name="Recipes[${recipeIndex}].InventoryItemId" class="form-control recipe-ingredient-select">
+                                <option value="">-- Select Ingredient --</option>
+                                @foreach (var item in (SelectList)ViewBag.InventoryItems)
+                                {
+                                        <option value="@item.Value">@item.Text</option>
+                                }
+                            </select>
+                            <span class="text-danger field-validation-valid" data-valmsg-for="Recipes[${recipeIndex}].InventoryItemId" data-valmsg-replace="true"></span>
+                        </div>
+                        <div class="col-md-4">
+                            <label>Quantity Required</label>
+                            <input name="Recipes[${recipeIndex}].QuantityRequired" class="form-control" type="number" step="any" value="" />
+                             <span class="text-danger field-validation-valid" data-valmsg-for="Recipes[${recipeIndex}].QuantityRequired" data-valmsg-replace="true"></span>
+                        </div>
+                        <div class="col-md-2 align-self-end">
+                            <button type="button" class="btn btn-danger remove-recipe-btn">Remove</button>
+                        </div>
+                    </div>`;
+                $("#recipesContainer").append(recipeItemHtml);
+                recipeIndex++;
+                // Re-parse the validator for dynamically added elements
+                $("form").data("validator").settings.ignore = ".data-val-ignore, :hidden, .recipe-ingredient-select:disabled"; // example for select2
+                $("form").removeData("validator");
+                $("form").removeData("unobtrusiveValidation");
+                $.validator.unobtrusive.parse("form");
+            });
+
+            $("#recipesContainer").on("click", ".remove-recipe-btn", function () {
+                $(this).closest(".recipe-item").remove();
+                // Re-index remaining items (optional but good for cleaner data if items are removed from middle)
+                // For simplicity, we'll rely on server-side handling of gaps or non-sequential indexes if they occur.
+                // A more robust client-side re-indexing would update all `name` attributes.
+            });
+        });
+    </script>
 }

@@ -1,30 +1,147 @@
-﻿@model dynamic
+﻿@* Views/Payment/Process.cshtml *@
+@model dynamic
 
-<h1>Thanh toán đơn hàng #@ViewBag.Order.Id</h1>
+<div class="row justify-content-center">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header">
+                <h3><i class="fas fa-credit-card"></i> Thanh toán đơn hàng #@ViewBag.Order.Id</h3>
+            </div>
+            <div class="card-body">
 
-@if (!ViewData.ModelState.IsValid)
-{
-    <div class="alert alert-danger">
-        @foreach (var error in ViewData.ModelState.Values.SelectMany(v => v.Errors))
-        {
-            <p>@error.ErrorMessage</p>
-        }
+                @if (!ViewData.ModelState.IsValid)
+                {
+                    <div class="alert alert-danger">
+                        @foreach (var error in ViewData.ModelState.Values.SelectMany(v => v.Errors))
+                        {
+                            <p class="mb-1">@error.ErrorMessage</p>
+                        }
+                    </div>
+                }
+
+                <!-- Thông tin đơn hàng -->
+                <div class="row mb-4">
+                    <div class="col-md-6">
+                        <h5>Thông tin đơn hàng</h5>
+                        <table class="table table-sm">
+                            <tr><td><strong>Bàn:</strong></td><td>@ViewBag.Order.Table?.Name</td></tr>
+                            <tr><td><strong>Khách hàng (đơn):</strong></td><td>@ViewBag.Order.CustomerName</td></tr>
+                            <tr><td><strong>Thời gian:</strong></td><td>@ViewBag.Order.CreatedAt.ToString("dd/MM/yyyy HH:mm")</td></tr>
+                            <tr><td><strong>Trạng thái:</strong></td><td><span class="badge bg-warning">@ViewBag.Order.Status</span></td></tr>
+                        </table>
+                    </div>
+                    <div class="col-md-6">
+                        <h5>Chi tiết món</h5>
+                        @if (ViewBag.Order.OrderDetails?.Count > 0)
+                        {
+                            <div class="table-responsive" style="max-height: 200px;">
+                                <table class="table table-sm">
+                                    @foreach (var detail in ViewBag.Order.OrderDetails)
+                                    {
+                                        <tr>
+                                            <td>@(detail.MenuItem?.Name ?? "N/A")</td>
+                                            <td class="text-center">x @detail.Quantity</td> @* SỬA LỖI HIỂN THỊ QUANTITY *@
+                                            <td class="text-end">@((detail.Price * detail.Quantity).ToString("C", new System.Globalization.CultureInfo("vi-VN")))</td>
+                                        </tr>
+                                    }
+                                    <tr class="table-active">
+                                        <td colspan="2"><strong>Tổng cộng:</strong></td>
+                                        <td class="text-end"><strong>@ViewBag.Order.Total.ToString("C", new System.Globalization.CultureInfo("vi-VN"))</strong></td>
+                                    </tr>
+                                </table>
+                            </div>
+                        }
+                        else
+                        {
+                            <p class="text-muted">Không có chi tiết món</p>
+                        }
+                    </div>
+                </div>
+
+                <!-- Form thanh toán -->
+                <form id="paymentForm" asp-controller="Payment" asp-action="Process" asp-route-orderId="@ViewBag.Order.Id" method="post">
+                    @Html.AntiForgeryToken()
+
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-group mb-3">
+                                <label for="paymentMethod">Phương thức thanh toán:</label>
+                                <select name="paymentMethod" id="paymentMethod" class="form-control" required>
+                                    <option value="">-- Chọn phương thức --</option>
+                                    <option value="Cash">Tiền mặt</option>
+                                    <option value="Card">Thẻ</option>
+                                    <option value="Mobile">Mobile Payment</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-group mb-3">
+                                <label for="customerPhoneNumber">Số điện thoại khách hàng (để tích điểm):</label>
+                                <div class="input-group">
+                                    <input type="tel" name="customerPhoneNumber" id="customerPhoneNumber" class="form-control" placeholder="Nhập SĐT..." />
+                                    <button class="btn btn-outline-secondary" type="button" id="findCustomerBtn">Tìm</button>
+                                </div>
+                                <small id="customerSearchResult" class="form-text text-muted-custom"></small>
+                                <input type="hidden" name="customerId" id="customerId" /> @* Để lưu ID khách hàng nếu tìm thấy *@
+                            </div>
+                        </div>
+                    </div>
+                     <div class="form-group mb-3">
+                        <label for="customerInfo">Ghi chú khách hàng (nếu cần):</label>
+                        <input type="text" name="customerInfo" id="customerInfo" class="form-control" value="@ViewBag.Order.CustomerName" />
+                    </div>
+
+
+                    <div class="form-group mt-3">
+                        <button type="submit" id="payButton" class="btn btn-primary">
+                            <i class="fas fa-check-circle"></i> Xác nhận thanh toán
+                        </button>
+                        <a asp-action="Index" class="btn btn-secondary">
+                            <i class="fas fa-times-circle"></i> Hủy
+                        </a>
+                    </div>
+                </form>
+            </div>
+        </div>
     </div>
+</div>
+
+@section Scripts {
+    <script>
+        $(document).ready(function() {
+            $('#findCustomerBtn').on('click', function() {
+                const phone = $('#customerPhoneNumber').val();
+                const searchResult = $('#customerSearchResult');
+                const customerIdField = $('#customerId');
+                searchResult.text('Đang tìm...');
+                customerIdField.val(''); // Xóa ID cũ
+
+                if (phone) {
+                    $.get('/Customer/QuickSearch', { phone: phone })
+                        .done(function(customer) {
+                            if (customer) {
+                                searchResult.html(`Tìm thấy: <strong>${customer.name}</strong> - ${customer.level} - ${customer.points} điểm`);
+                                customerIdField.val(customer.id);
+                                // Tự động điền tên khách hàng vào ghi chú nếu muốn
+                                // $('#customerInfo').val(customer.name);
+                            } else {
+                                searchResult.text('Không tìm thấy khách hàng. Có thể tạo mới khi thanh toán.');
+                            }
+                        })
+                        .fail(function() {
+                            searchResult.text('Lỗi khi tìm khách hàng.');
+                        });
+                } else {
+                    searchResult.text('Vui lòng nhập số điện thoại.');
+                }
+            });
+
+            $('#paymentForm').on('submit', function(e) {
+                const payButton = $('#payButton');
+                payButton.html('<i class="fas fa-spinner fa-spin"></i> Đang xử lý...');
+                payButton.prop('disabled', true);
+                // Không cần e.preventDefault() nếu bạn muốn form submit bình thường
+            });
+        });
+    </script>
 }
-
-<form asp-action="Process" method="post">
-    <input type="hidden" name="orderId" value="@ViewBag.Order.Id" />
-    <div class="form-group">
-        <label>Tổng tiền</label>
-        <input type="text" class="form-control" value="@ViewBag.Order.Total.ToString("C")" readonly />
-    </div>
-    <div class="form-group">
-        <label>Phương thức thanh toán</label>
-        <select name="paymentMethod" class="form-control">
-            <option value="Cash">Tiền mặt</option>
-            <option value="Card">Thẻ</option>
-            <option value="Mobile">Thanh toán di động</option>
-        </select>
-    </div>
-    <button type="submit" class="btn btn-primary">Thanh toán</button>
-</form>

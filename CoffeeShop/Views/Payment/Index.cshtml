@@ -1,0 +1,76 @@
+﻿@* Views/Payment/Index.cshtml *@
+@model IEnumerable<CoffeeShop.Models.Order>
+
+<h1>Đơn hàng cần thanh toán</h1>
+
+@if (TempData["SuccessMessage"] != null)
+{
+    <div class="alert alert-success alert-dismissible fade show">
+        @TempData["SuccessMessage"]
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+}
+
+@if (TempData["ErrorMessage"] != null)
+{
+    <div class="alert alert-danger alert-dismissible fade show">
+        @TempData["ErrorMessage"]
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+}
+
+<div class="row">
+    @foreach (var order in Model)
+    {
+        <div class="col-md-6 col-lg-4 mb-3">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="card-title mb-0">Đơn hàng #@order.Id</h5>
+                    <span class="badge bg-warning">@order.Status</span>
+                </div>
+                <div class="card-body">
+                    <p class="card-text">
+                        <strong>Bàn:</strong> @(order.Table?.Name ?? "Không xác định")<br>
+                        <strong>Khách hàng:</strong> @order.CustomerName<br>
+                        <strong>Thời gian:</strong> @order.CreatedAt.ToString("dd/MM/yyyy HH:mm")<br>
+                        <strong>Tổng tiền:</strong> <span class="text-primary fw-bold">@order.Total.ToString("C")</span>
+                    </p>
+
+                    @if (order.OrderDetails?.Any() == true)
+                    {
+                        <div class="mt-2">
+                            <small class="text-muted">Món đã order:</small>
+                            <ul class="list-unstyled small">
+                                @foreach (var detail in order.OrderDetails.Take(3))
+                                {
+                                    <li>• @detail.MenuItem?.Name x @detail.Quantity</li>
+                                }
+                                @if (order.OrderDetails.Count() > 3)
+                                {
+                                    <li class="text-muted">... và @(order.OrderDetails.Count() - 3) món khác</li>
+                                }
+                            </ul>
+                        </div>
+                    }
+                </div>
+                <div class="card-footer">
+                    <a asp-action="Process" asp-route-orderId="@order.Id"
+                       class="btn btn-primary btn-sm">
+                        <i class="fas fa-credit-card"></i> Thanh toán
+                    </a>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@if (!Model.Any())
+{
+    <div class="text-center py-5">
+        <div class="text-muted">
+            <i class="fas fa-receipt fa-3x mb-3"></i>
+            <h4>Không có đơn hàng nào cần thanh toán</h4>
+            <p>Tất cả đơn hàng đã được xử lý hoặc chưa sẵn sàng.</p>
+        </div>
+    </div>
+}

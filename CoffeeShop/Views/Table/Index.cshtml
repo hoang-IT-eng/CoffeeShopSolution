@@ -1,0 +1,44 @@
+﻿@using Microsoft.AspNetCore.Identity
+
+@model IEnumerable<CoffeeShop.Models.Table>
+
+<h1>Sơ đồ bàn</h1>
+
+<div class="row">
+    @foreach (var table in Model)
+    {
+        <div class="col-md-3 mb-3">
+            <div class="card @(table.Status == "Occupied" ? "bg-warning" : table.Status == "Reserved" ? "bg-info" : "bg-success")">
+                <div class="card-body">
+                    <h5>@table.Name (@table.Area)</h5>
+                    <p>Trạng thái: @table.Status</p>
+                    <select class="form-control status-select" data-table-id="@table.Id">
+                        <option value="Empty" selected="@(table.Status == "Empty" ? "selected" : null)">Trống</option>
+                        <option value="Occupied" selected="@(table.Status == "Occupied" ? "selected" : null)">Đang phục vụ</option>
+                        <option value="Reserved" selected="@(table.Status == "Reserved" ? "selected" : null)">Đã đặt</option>
+                    </select>
+                    @if (table.Status == "Empty" || table.Status == "Reserved")
+                    {
+                        <a asp-controller="Order" asp-action="Create" asp-route-tableId="@table.Id" class="btn btn-primary mt-2">Đặt món</a>
+                    }
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@section Scripts {
+    <script>
+        $(document).ready(function () {
+            $('.status-select').change(function () {
+                var tableId = $(this).data('table-id');
+                var status = $(this).val();
+                $.post('/Table/UpdateStatus', { id: tableId, status: status }, function (response) {
+                    if (response.success) {
+                        location.reload(); // Tải lại trang để cập nhật giao diện
+                    }
+                });
+            });
+        });
+    </script>
+}

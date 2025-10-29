@@ -1,0 +1,172 @@
+﻿@model CoffeeShop.Models.Customer
+
+@{
+    ViewData["Title"] = "Chi tiết khách hàng";
+}
+
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">@ViewData["Title"] - @Model.Name</h3>
+                    <div class="card-tools">
+                        <a asp-action="Edit" asp-route-id="@Model.Id" class="btn btn-warning btn-sm">
+                            <i class="fas fa-edit"></i> Chỉnh sửa
+                        </a>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <!-- Customer Information -->
+                    <div class="row">
+                        <div class="col-md-6">
+                            <table class="table table-bordered">
+                                <tr>
+                                    <th width="40%">Tên khách hàng:</th>
+                                    <td>@Model.Name</td>
+                                </tr>
+                                <tr>
+                                    <th>Số điện thoại:</th>
+                                    <td>@Model.PhoneNumber</td>
+                                </tr>
+                                <tr>
+                                    <th>Email:</th>
+                                    <td>@(string.IsNullOrEmpty(Model.Email) ? "Chưa cung cấp" : Model.Email)</td>
+                                </tr>
+                                <tr>
+                                    <th>Địa chỉ:</th>
+                                    <td>@(string.IsNullOrEmpty(Model.Address) ? "Chưa cung cấp" : Model.Address)</td>
+                                </tr>
+                                <tr>
+                                    <th>Ngày tham gia:</th>
+                                    <td>@Model.JoinDate.ToString("dd/MM/yyyy HH:mm")</td>
+                                </tr>
+                                <tr>
+                                    <th>Cập nhật lần cuối:</th>
+                                    <td>@Model.LastUpdated.ToString("dd/MM/yyyy HH:mm")</td>
+                                </tr>
+                            </table>
+                        </div>
+                        <div class="col-md-6">
+                            <!-- Customer Stats -->
+                            <div class="row">
+                                <div class="col-6">
+                                    <div class="info-box bg-info">
+                                        <span class="info-box-icon"><i class="fas fa-award"></i></span>
+                                        <div class="info-box-content">
+                                            <span class="info-box-text">Hạng thành viên</span>
+                                            <span class="info-box-number">@Model.MembershipLevel</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-6">
+                                    <div class="info-box bg-success">
+                                        <span class="info-box-icon"><i class="fas fa-coins"></i></span>
+                                        <div class="info-box-content">
+                                            <span class="info-box-text">Điểm tích lũy</span>
+                                            <span class="info-box-number">@Model.LoyaltyPoints.ToString("N0")</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-6">
+                                    <div class="info-box bg-warning">
+                                        <span class="info-box-icon"><i class="fas fa-money-bill"></i></span>
+                                        <div class="info-box-content">
+                                            <span class="info-box-text">Tổng chi tiêu</span>
+                                            <span class="info-box-number">@Model.TotalSpent.ToString("C0")</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-6">
+                                    <div class="info-box bg-danger">
+                                        <span class="info-box-icon"><i class="fas fa-shopping-cart"></i></span>
+                                        <div class="info-box-content">
+                                            <span class="info-box-text">Số đơn hàng</span>
+                                            <span class="info-box-number">@Model.TotalOrders</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Membership Level Progress -->
+                    <div class="row mt-4">
+                        <div class="col-12">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h5>Tiến trình hạng thành viên</h5>
+                                </div>
+                                <div class="card-body">
+                                    @{
+                                        var nextLevelAmount = GetNextLevelAmount(Model.MembershipLevel);
+                                        var progress = nextLevelAmount > 0 ? (double)Model.TotalSpent / (double)nextLevelAmount * 100 : 100;
+                                        var progressClass = GetProgressClass(Model.MembershipLevel);
+                                    }
+
+                                    <div class="progress mb-2">
+                                        <div class="progress-bar @progressClass" style="width: @Math.Min(progress, 100)%"></div>
+                                    </div>
+                                    <p class="text-muted">
+                                        @if (nextLevelAmount > 0)
+                                        {
+                                            <span>Còn @((nextLevelAmount - Model.TotalSpent).ToString("C0")) nữa để lên hạng @GetNextLevel(Model.MembershipLevel)</span>
+                                        }
+                                        else
+                                        {
+                                            <span>Đã đạt hạng cao nhất</span>
+                                        }
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card-footer">
+                    <a asp-action="Edit" asp-route-id="@Model.Id" class="btn btn-warning">
+                        <i class="fas fa-edit"></i> Chỉnh sửa
+                    </a>
+                    <a asp-action="Index" class="btn btn-secondary">
+                        <i class="fas fa-arrow-left"></i> Quay lại danh sách
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@functions {
+    decimal GetNextLevelAmount(string currentLevel)
+    {
+        return currentLevel switch
+        {
+            "Bronze" => 1000000,
+            "Silver" => 5000000,
+            "Gold" => 10000000,
+            _ => 0
+        };
+    }
+
+    string GetNextLevel(string currentLevel)
+    {
+        return currentLevel switch
+        {
+            "Bronze" => "Silver",
+            "Silver" => "Gold",
+            "Gold" => "Diamond",
+            _ => ""
+        };
+    }
+
+    string GetProgressClass(string level)
+    {
+        return level switch
+        {
+            "Diamond" => "bg-primary",
+            "Gold" => "bg-warning",
+            "Silver" => "bg-secondary",
+            _ => "bg-success"
+        };
+    }
+}

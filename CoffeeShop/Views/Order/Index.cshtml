@@ -1,11 +1,12 @@
 ﻿@model IEnumerable<CoffeeShop.Models.Order>
 
-<h1>Danh sách đơn hàng đang chờ</h1>
+<h1>Danh sách đơn hàng</h1>
 
 <table class="table">
     <thead>
         <tr>
             <th>Bàn</th>
+            <th>Thời gian</th>
             <th>Trạng thái</th>
             <th>Tổng tiền</th>
             <th>Hành động</th>
@@ -15,28 +16,25 @@
         @foreach (var order in Model)
         {
             <tr>
-                <td>@order.Table.Name</td>
+                <td>@(order.Table != null ? order.Table.Name : "Không xác định")</td>
+                <td>@order.CreatedAt.ToString("dd/MM/yyyy HH:mm")</td>
                 <td>@order.Status</td>
                 <td>@order.Total.ToString("C")</td>
                 <td>
-                    @if (order.Status != "Completed")
+                    @if (order.Status == "New" || order.Status == "Processing")
                     {
-                        <form asp-action="UpdateStatus" method="post" class="d-inline">
+                        <form asp-action="UpdateStatus" method="post" style="display:inline;">
                             <input type="hidden" name="id" value="@order.Id" />
-                            <select name="status" class="form-control d-inline w-auto">
-                                <option value="New">Mới</option>
-                                <option value="Processing">Đang xử lý</option>
-                                <option value="Ready">Sẵn sàng</option>
+                            <select name="status">
+                                <option value="New" selected="@(order.Status == "New")">Mới</option>
+                                <option value="Processing" selected="@(order.Status == "Processing")">Đang xử lý</option>
                                 <option value="Completed">Hoàn thành</option>
                             </select>
                             <button type="submit" class="btn btn-primary">Cập nhật</button>
                         </form>
-                        <a asp-controller="Payment" asp-action="Process" asp-route-orderId="@order.Id" class="btn btn-success">Thanh toán</a>
                     }
                 </td>
             </tr>
         }
     </tbody>
 </table>
-
-<a asp-action="Create" class="btn btn-success">Tạo đơn hàng mới</a>

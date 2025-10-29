@@ -1,0 +1,42 @@
+﻿```html
+@model CoffeeShop.Models.InventoryItem
+
+@{
+    ViewData["Title"] = "Thêm nguyên liệu";
+}
+
+<h1>Thêm nguyên liệu mới</h1>
+
+<form asp-action="Create" method="post">
+    <div class="form-group">
+        <label>Tên nguyên liệu</label>
+        <input asp-for="Name" class="form-control" required />
+        <span asp-validation-for="Name" class="text-danger"></span>
+    </div>
+    <div class="form-group">
+        <label>Số lượng</label>
+        <input asp-for="Quantity" type="number" step="0.01" class="form-control" required />
+        <span asp-validation-for="Quantity" class="text-danger"></span>
+    </div>
+    <div class="form-group">
+        <label>Đơn vị</label>
+        <input asp-for="Unit" class="form-control" required />
+        <span asp-validation-for="Unit" class="text-danger"></span>
+    </div>
+    <div class="form-group">
+        <label>Hạn dùng</label>
+        <input asp-for="ExpirationDate" type="date" class="form-control" required />
+        <span asp-validation-for="ExpirationDate" class="text-danger"></span>
+    </div>
+    <div class="form-group">
+        <label>Ngưỡng tối thiểu</label>
+        <input asp-for="MinimumThreshold" type="number" step="0.01" class="form-control" required />
+        <span asp-validation-for="MinimumThreshold" class="text-danger"></span>
+    </div>
+    <button type="submit" class="btn btn-primary">Thêm</button>
+    <a asp-action="Index" class="btn btn-secondary">Quay lại</a>
+</form>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+}
