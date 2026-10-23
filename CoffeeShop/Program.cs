@@ -36,6 +36,46 @@
        options.LoginPath = "/Account/Login";
        options.LogoutPath = "/Account/Logout";
        options.AccessDeniedPath = "/Account/AccessDenied";
+       if (builder.Environment.IsDevelopment())
+       {
+           options.Cookie.SameSite = SameSiteMode.Lax;
+       }
+       else
+       {
+           options.Cookie.SameSite = SameSiteMode.None;
+           options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+       }
+       options.Events.OnRedirectToLogin = context =>
+       {
+           if (context.Request.Path.StartsWithSegments("/api"))
+           {
+               context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+               return Task.CompletedTask;
+           }
+           context.Response.Redirect(context.RedirectUri);
+           return Task.CompletedTask;
+       };
+       options.Events.OnRedirectToAccessDenied = context =>
+       {
+           if (context.Request.Path.StartsWithSegments("/api"))
+           {
+               context.Response.StatusCode = StatusCodes.Status403Forbidden;
+               return Task.CompletedTask;
+           }
+           context.Response.Redirect(context.RedirectUri);
+           return Task.CompletedTask;
+       };
+   });
+
+   var frontendOrigins = (builder.Configuration["Frontend:Origins"] ?? "http://localhost:5173")
+       .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+   builder.Services.AddCors(options =>
+   {
+       options.AddPolicy("Frontend", policy =>
+           policy.WithOrigins(frontendOrigins)
+               .AllowAnyHeader()
+               .AllowAnyMethod()
+               .AllowCredentials());
    });
 builder.Services.AddControllersWithViews();
 
@@ -63,6 +103,7 @@ var app = builder.Build();
 
    app.UseRouting();
 
+   app.UseCors("Frontend");
    app.UseAuthentication();
    app.UseAuthorization();
 
@@ -93,7 +134,14 @@ var app = builder.Build();
            var newAdmin = await userManager.FindByEmailAsync("newadmin@coffee.com");
            if (newAdmin == null)
            {
-               newAdmin = new ApplicationUser { UserName = "newadmin@coffee.com", Email = "newadmin@coffee.com" };
+               newAdmin = new ApplicationUser
+               {
+                   UserName = "newadmin@coffee.com",
+                   Email = "newadmin@coffee.com",
+                   FullName = "Admin",
+                   Role = "Admin",
+                   EmailConfirmed = true
+               };
                var result = await userManager.CreateAsync(newAdmin, "NewAdmin@123");
                if (result.Succeeded)
                {

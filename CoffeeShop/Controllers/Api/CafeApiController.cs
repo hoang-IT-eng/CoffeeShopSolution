@@ -1,0 +1,863 @@
+using CoffeeShop.Data.UnitOfWork;
+using CoffeeShop.Models;
+using CoffeeShop.Services;
+using CoffeeShop.ViewModels;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Mvc;
+
+namespace CoffeeShop.Controllers.Api
+{
+    [ApiController]
+    [Route("api")]
+    [Authorize]
+    [IgnoreAntiforgeryToken]
+    public class CafeApiController : ControllerBase
+    {
+        private readonly SignInManager<ApplicationUser> _signInManager;
+        private readonly UserManager<ApplicationUser> _userManager;
+        private readonly RoleManager<IdentityRole> _roleManager;
+        private readonly IUnitOfWork _unitOfWork;
+        private readonly IOrderService _orderService;
+        private readonly IInventoryService _inventoryService;
+        private readonly IPaymentService _paymentService;
+        private readonly ICustomerService _customerService;
+
+        public CafeApiController(
+            SignInManager<ApplicationUser> signInManager,
+            UserManager<ApplicationUser> userManager,
+            RoleManager<IdentityRole> roleManager,
+            IUnitOfWork unitOfWork,
+            IOrderService orderService,
+            IInventoryService inventoryService,
+            IPaymentService paymentService,
+            ICustomerService customerService)
+        {
+            _signInManager = signInManager;
+            _userManager = userManager;
+            _roleManager = roleManager;
+            _unitOfWork = unitOfWork;
+            _orderService = orderService;
+            _inventoryService = inventoryService;
+            _paymentService = paymentService;
+            _customerService = customerService;
+        }
+
+        [AllowAnonymous]
+        [HttpPost("auth/login")]
+        public async Task<IActionResult> Login([FromBody] LoginRequest request)
+        {
+            var user = await _userManager.FindByEmailAsync(request.Email ?? "");
+            if (user == null)
+            {
+                return BadRequest(new { message = "Email không tồn tại." });
+            }
+
+            var result = await _signInManager.PasswordSignInAsync(user.UserName!, request.Password ?? "", request.RememberMe, false);
+            if (!result.Succeeded)
+            {
+                return BadRequest(new { message = "Mật khẩu không đúng." });
+            }
+
+            return Ok(await Profile(user));
+        }
+
+        [HttpPost("auth/logout")]
+        public async Task<IActionResult> Logout()
+        {
+            await _signInManager.SignOutAsync();
+            return Ok(new { ok = true });
+        }
+
+        [AllowAnonymous]
+        [HttpGet("auth/me")]
+        public async Task<IActionResult> Me()
+        {
+            if (User.Identity?.IsAuthenticated != true)
+            {
+                return Ok(new { authenticated = false });
+            }
+
+            var user = await _userManager.GetUserAsync(User);
+            if (user == null)
+            {
+                return Ok(new { authenticated = false });
+            }
+
+            return Ok(await Profile(user));
+        }
+
+        [HttpGet("dashboard")]
+        public async Task<IActionResult> Dashboard()
+        {
+            var today = DateTime.Today;
+            var lowStock = (await _inventoryService.GetLowStockItemsAsync()).ToList();
+            var nearExpiry = (await _inventoryService.GetExpiringItemsAsync(7)).ToList();
+            var expired = (await _inventoryService.GetItemsByExpirationAsync(today)).Where(i => i.ExpirationDate < today).ToList();
+            var ordersToday = await _unitOfWork.Orders.FindAsync(o => o.CreatedAt.Date == today);
+            var newOrders = await _unitOfWork.Orders.FindAsync(o => o.Status == "New");
+            var processing = await _unitOfWork.Orders.FindAsync(o => o.Status == "Processing");
+            var occupied = await _unitOfWork.Tables.FindAsync(t => t.Status == "Occupied");
+
+            var labels = new List<string>();
+            var data = new List<decimal>();
+            foreach (var day in Enumerable.Range(0, 7).Select(d => today.AddDays(-d)).OrderBy(d => d))
+            {
+                var dayOrders = await _unitOfWork.Orders.FindAsync(o => o.CreatedAt.Date == day);
+                labels.Add(day.ToString("dd/MM"));
+                data.Add(dayOrders.Sum(o => o.Total));
+            }
+
+            return Ok(new
+            {
+                dailyRevenue = ordersToday.Sum(o => o.Total),
+                newOrders = newOrders.Count(),
+                processingOrders = processing.Count(),
+                tablesInUse = occupied.Count(),
+                totalWarnings = lowStock.Count + nearExpiry.Count + expired.Count,
+                lowStock = lowStock.Select(MapInventory),
+                nearExpiry = nearExpiry.Select(MapInventory),
+                expired = expired.Select(MapInventory),
+                chartLabels = labels,
+                chartData = data
+            });
+        }
+
+        [HttpGet("home")]
+        public async Task<IActionResult> Home()
+        {
+            var tables = (await _unitOfWork.Tables.GetAllAsync()).ToList();
+            var pending = await _orderService.GetPendingOrdersAsync();
+            return Ok(new
+            {
+                emptyTables = tables.Count(t => t.Status == "Empty"),
+                occupiedTables = tables.Count(t => t.Status == "Occupied"),
+                reservedTables = tables.Count(t => t.Status == "Reserved"),
+                orders = pending.Select(MapOrder)
+            });
+        }
+
+        [Authorize(Roles = "Waiter,Admin")]
+        [HttpGet("orders")]
+        public async Task<IActionResult> Orders()
+        {
+            var orders = await _orderService.GetPendingOrdersAsync();
+            return Ok(orders.Select(MapOrder));
+        }
+
+        [Authorize(Roles = "Waiter,Admin,Cashier")]
+        [HttpGet("orders/{id:int}")]
+        public async Task<IActionResult> Order(int id)
+        {
+            var order = await _orderService.GetOrderWithDetailsAsync(id);
+            return order == null ? NotFound(new { message = "Không tìm thấy đơn hàng." }) : Ok(MapOrder(order));
+        }
+
+        [Authorize(Roles = "Waiter,Admin")]
+        [HttpGet("orders/form")]
+        public async Task<IActionResult> OrderForm()
+        {
+            var tables = await _unitOfWork.Tables.GetAllAsync();
+            var menu = await _unitOfWork.MenuItems.GetAllAsync();
+            return Ok(new
+            {
+                tables = tables.Select(t => new { id = t.Id, name = t.Name, area = t.Area, status = t.Status }),
+                menuItems = menu.Where(m => m.IsAvailable).Select(MapMenu)
+            });
+        }
+
+        [Authorize(Roles = "Waiter,Admin")]
+        [HttpPost("orders")]
+        public async Task<IActionResult> CreateOrder([FromBody] CreateOrderRequest request)
+        {
+            if (request.TableId <= 0 || string.IsNullOrWhiteSpace(request.CustomerName) || request.Items == null || request.Items.Count == 0)
+            {
+                return BadRequest(new { message = "Cần chọn bàn, tên khách và ít nhất một món." });
+            }
+
+            var details = request.Items
+                .Where(i => i.MenuItemId > 0 && i.Quantity > 0)
+                .Select(i => new OrderDetail { MenuItemId = i.MenuItemId, Quantity = i.Quantity })
+                .ToList();
+            if (details.Count == 0)
+            {
+                return BadRequest(new { message = "Chi tiết đơn hàng không hợp lệ." });
+            }
+
+            var (available, missing) = await _inventoryService.CheckAvailabilityWithDetailsAsync(details);
+            if (!available)
+            {
+                return BadRequest(new { message = string.Join(" ", missing) });
+            }
+
+            decimal total = 0;
+            foreach (var detail in details)
+            {
+                var menuItem = await _unitOfWork.MenuItems.GetByIdAsync(detail.MenuItemId);
+                if (menuItem == null)
+                {
+                    return BadRequest(new { message = $"Không tìm thấy món {detail.MenuItemId}." });
+                }
+                detail.Price = menuItem.Price;
+                total += detail.Quantity * menuItem.Price;
+            }
+
+            var order = new Order
+            {
+                TableId = request.TableId,
+                CustomerName = request.CustomerName.Trim(),
+                Total = total,
+                CreatedAt = DateTime.Now,
+                Status = "New"
+            };
+            await _unitOfWork.Orders.AddAsync(order);
+            await _unitOfWork.SaveChangesAsync();
+
+            foreach (var detail in details)
+            {
+                detail.OrderId = order.Id;
+                await _unitOfWork.OrderDetails.AddAsync(detail);
+            }
+            await _unitOfWork.SaveChangesAsync();
+
+            var table = await _unitOfWork.Tables.GetByIdAsync(order.TableId);
+            if (table != null && table.Status != "Occupied")
+            {
+                table.Status = "Occupied";
+                _unitOfWork.Tables.Update(table);
+                await _unitOfWork.SaveChangesAsync();
+            }
+
+            return Ok(new { id = order.Id, message = $"Đã tạo đơn hàng #{order.Id}." });
+        }
+
+        [Authorize(Roles = "Waiter,Admin")]
+        [HttpPost("orders/{id:int}/status")]
+        public async Task<IActionResult> UpdateOrderStatus(int id, [FromBody] StatusRequest request)
+        {
+            var order = await _orderService.GetOrderWithDetailsAsync(id);
+            if (order == null)
+            {
+                return NotFound(new { message = "Không tìm thấy đơn hàng." });
+            }
+
+            if (request.Status == "Ready" && order.Status != "Ready")
+            {
+                var (available, missing) = await _inventoryService.CheckAvailabilityWithDetailsAsync(order.OrderDetails.ToList());
+                if (!available)
+                {
+                    return BadRequest(new { message = "Không đủ nguyên liệu: " + string.Join(", ", missing) });
+                }
+                await _inventoryService.DeductStockAsync(order.OrderDetails.ToList());
+            }
+
+            await _orderService.UpdateStatusAsync(id, request.Status);
+            return Ok(new { message = "Đã cập nhật trạng thái." });
+        }
+
+        [Authorize(Roles = "Waiter,Admin")]
+        [HttpPost("orders/{id:int}/cancel")]
+        public async Task<IActionResult> CancelOrder(int id)
+        {
+            var order = await _orderService.GetOrderWithDetailsAsync(id);
+            if (order == null)
+            {
+                return NotFound(new { message = "Không tìm thấy đơn hàng." });
+            }
+
+            if (order.Status == "New" || order.Status == "Processing")
+            {
+                await _orderService.UpdateStatusAsync(id, "Cancelled");
+                var table = await _unitOfWork.Tables.GetByIdAsync(order.TableId);
+                if (table != null && table.Status == "Occupied")
+                {
+                    var others = await _unitOfWork.Orders.FindAsync(o =>
+                        o.TableId == order.TableId && o.Id != id &&
+                        (o.Status == "New" || o.Status == "Processing" || o.Status == "Ready"));
+                    if (!others.Any())
+                    {
+                        table.Status = "Empty";
+                        _unitOfWork.Tables.Update(table);
+                        await _unitOfWork.SaveChangesAsync();
+                    }
+                }
+                return Ok(new { message = $"Đơn #{id} đã được hủy." });
+            }
+
+            if (order.Status == "Ready")
+            {
+                await _inventoryService.RestockFromOrderAsync(order.OrderDetails.ToList());
+                await _orderService.UpdateStatusAsync(id, "Cancelled");
+                return Ok(new { message = $"Đơn #{id} đã hủy và hoàn nguyên liệu." });
+            }
+
+            return BadRequest(new { message = $"Không hủy được đơn trạng thái {order.Status}." });
+        }
+
+        [HttpGet("tables")]
+        public async Task<IActionResult> Tables()
+        {
+            var tables = await _unitOfWork.Tables.GetAllAsync();
+            return Ok(tables.Select(t => new { id = t.Id, name = t.Name, area = t.Area, status = t.Status }));
+        }
+
+        [HttpPost("tables/{id:int}/status")]
+        public async Task<IActionResult> UpdateTable(int id, [FromBody] StatusRequest request)
+        {
+            if (request.Status is not ("Empty" or "Occupied" or "Reserved"))
+            {
+                return BadRequest(new { message = "Trạng thái không hợp lệ." });
+            }
+
+            var table = await _unitOfWork.Tables.GetByIdAsync(id);
+            if (table == null)
+            {
+                return NotFound(new { message = "Không tìm thấy bàn." });
+            }
+
+            table.Status = request.Status;
+            _unitOfWork.Tables.Update(table);
+            await _unitOfWork.SaveChangesAsync();
+            return Ok(new { ok = true });
+        }
+
+        [Authorize(Roles = "Admin")]
+        [HttpGet("menu")]
+        public async Task<IActionResult> Menu()
+        {
+            var items = await _unitOfWork.MenuItems.GetAllAsync();
+            return Ok(items.Select(MapMenu));
+        }
+
+        [Authorize(Roles = "Admin")]
+        [HttpGet("menu/{id:int}")]
+        public async Task<IActionResult> MenuItem(int id)
+        {
+            var item = await _unitOfWork.MenuItems.GetByIdWithIncludesAsync(id, m => m.Recipes);
+            if (item == null)
+            {
+                return NotFound(new { message = "Không tìm thấy món." });
+            }
+
+            var inventory = (await _unitOfWork.InventoryItems.GetAllAsync()).ToDictionary(i => i.Id, i => i.Name);
+            return Ok(new
+            {
+                item = MapMenu(item),
+                recipes = item.Recipes.Select(r => new
+                {
+                    inventoryItemId = r.InventoryItemId,
+                    inventoryItemName = inventory.GetValueOrDefault(r.InventoryItemId, ""),
+                    quantityRequired = r.QuantityRequired
+                }),
+                inventory = inventory.Select(pair => new { id = pair.Key, name = pair.Value })
+            });
+        }
+
+        [Authorize(Roles = "Admin")]
+        [HttpGet("menu/ingredients")]
+        public async Task<IActionResult> Ingredients()
+        {
+            var inventory = await _unitOfWork.InventoryItems.GetAllAsync();
+            return Ok(inventory.Select(i => new { id = i.Id, name = i.Name, unit = i.Unit }));
+        }
+
+        [Authorize(Roles = "Admin")]
+        [HttpPost("menu")]
+        public async Task<IActionResult> CreateMenu([FromBody] MenuWriteRequest request)
+        {
+            if (string.IsNullOrWhiteSpace(request.Name) || request.Price <= 0)
+            {
+                return BadRequest(new { message = "Tên và giá món là bắt buộc." });
+            }
+
+            var menuItem = new MenuItem
+            {
+                Name = request.Name.Trim(),
+                Price = request.Price,
+                Description = request.Description ?? "",
+                ImageUrl = request.ImageUrl ?? "",
+                Category = string.IsNullOrWhiteSpace(request.Category) ? "Uncategorized" : request.Category,
+                IsAvailable = request.IsAvailable
+            };
+            await _unitOfWork.MenuItems.AddAsync(menuItem);
+            await _unitOfWork.SaveChangesAsync();
+            await SaveRecipes(menuItem.Id, request.Recipes);
+            return Ok(new { id = menuItem.Id });
+        }
+
+        [Authorize(Roles = "Admin")]
+        [HttpPut("menu/{id:int}")]
+        public async Task<IActionResult> UpdateMenu(int id, [FromBody] MenuWriteRequest request)
+        {
+            var menuItem = await _unitOfWork.MenuItems.GetByIdWithIncludesAsync(id, m => m.Recipes);
+            if (menuItem == null)
+            {
+                return NotFound(new { message = "Không tìm thấy món." });
+            }
+
+            menuItem.Name = request.Name.Trim();
+            menuItem.Price = request.Price;
+            menuItem.Description = request.Description ?? "";
+            menuItem.ImageUrl = request.ImageUrl ?? "";
+            menuItem.Category = string.IsNullOrWhiteSpace(request.Category) ? "Uncategorized" : request.Category;
+            menuItem.IsAvailable = request.IsAvailable;
+            _unitOfWork.MenuItems.Update(menuItem);
+            foreach (var recipe in menuItem.Recipes.ToList())
+            {
+                _unitOfWork.MenuItemRecipes.Remove(recipe);
+            }
+            await _unitOfWork.SaveChangesAsync();
+            await SaveRecipes(menuItem.Id, request.Recipes);
+            return Ok(new { id = menuItem.Id });
+        }
+
+        [Authorize(Roles = "Admin")]
+        [HttpDelete("menu/{id:int}")]
+        public async Task<IActionResult> DeleteMenu(int id)
+        {
+            var menuItem = await _unitOfWork.MenuItems.GetByIdAsync(id);
+            if (menuItem == null)
+            {
+                return NotFound(new { message = "Không tìm thấy món." });
+            }
+            _unitOfWork.MenuItems.Remove(menuItem);
+            await _unitOfWork.SaveChangesAsync();
+            return Ok(new { ok = true });
+        }
+
+        [Authorize(Roles = "Admin")]
+        [HttpGet("inventory")]
+        public async Task<IActionResult> Inventory([FromQuery] DateTime? beforeDate)
+        {
+            var items = await _inventoryService.GetItemsByExpirationAsync(beforeDate);
+            return Ok(items.Select(MapInventory));
+        }
+
+        [Authorize(Roles = "Admin")]
+        [HttpPost("inventory")]
+        public async Task<IActionResult> CreateInventory([FromBody] InventoryItem item)
+        {
+            if (string.IsNullOrWhiteSpace(item.Name) || string.IsNullOrWhiteSpace(item.Unit))
+            {
+                return BadRequest(new { message = "Tên và đơn vị là bắt buộc." });
+            }
+            item.Id = 0;
+            item.MenuItemRecipes = new List<MenuItemRecipe>();
+            await _unitOfWork.InventoryItems.AddAsync(item);
+            await _unitOfWork.SaveChangesAsync();
+            return Ok(new { id = item.Id });
+        }
+
+        [Authorize(Roles = "Admin")]
+        [HttpPost("inventory/{id:int}/stock")]
+        public async Task<IActionResult> AdjustStock(int id, [FromBody] StockRequest request)
+        {
+            var item = await _inventoryService.GetByIdAsync(id);
+            if (item == null)
+            {
+                return NotFound(new { message = "Không tìm thấy nguyên liệu." });
+            }
+            if (request.Quantity <= 0)
+            {
+                return BadRequest(new { message = "Số lượng phải lớn hơn 0." });
+            }
+            if (request.Action == "deduct" && item.Quantity < request.Quantity)
+            {
+                return BadRequest(new { message = $"Không đủ hàng. Hiện có {item.Quantity} {item.Unit}." });
+            }
+            if (request.Action == "add")
+            {
+                await _inventoryService.AddStockAsync(id, request.Quantity, request.ExpirationDate);
+            }
+            else if (request.Action == "deduct")
+            {
+                await _inventoryService.AddStockAsync(id, -request.Quantity, item.ExpirationDate);
+            }
+            else
+            {
+                return BadRequest(new { message = "Hành động không hợp lệ." });
+            }
+            return Ok(new { ok = true });
+        }
+
+        [Authorize(Roles = "Admin")]
+        [HttpDelete("inventory/{id:int}")]
+        public async Task<IActionResult> DeleteInventory(int id)
+        {
+            await _inventoryService.DeleteAsync(id);
+            return Ok(new { ok = true });
+        }
+
+        [Authorize(Roles = "Admin,Cashier")]
+        [HttpGet("customers")]
+        public async Task<IActionResult> Customers([FromQuery] string? search)
+        {
+            var customers = string.IsNullOrWhiteSpace(search)
+                ? await _customerService.GetAllCustomersAsync()
+                : await _customerService.SearchCustomersAsync(search);
+            return Ok(customers.Select(MapCustomer));
+        }
+
+        [Authorize(Roles = "Admin,Cashier")]
+        [HttpGet("customers/{id:int}")]
+        public async Task<IActionResult> Customer(int id)
+        {
+            var customer = await _customerService.GetCustomerByIdAsync(id);
+            return customer == null ? NotFound(new { message = "Không tìm thấy khách hàng." }) : Ok(MapCustomer(customer));
+        }
+
+        [Authorize(Roles = "Admin,Cashier")]
+        [HttpPost("customers")]
+        public async Task<IActionResult> CreateCustomer([FromBody] Customer customer)
+        {
+            try
+            {
+                customer.Id = 0;
+                var created = await _customerService.CreateCustomerAsync(customer);
+                return Ok(MapCustomer(created));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+        }
+
+        [Authorize(Roles = "Admin,Cashier")]
+        [HttpPut("customers/{id:int}")]
+        public async Task<IActionResult> UpdateCustomer(int id, [FromBody] Customer customer)
+        {
+            var existing = await _customerService.GetCustomerByIdAsync(id);
+            if (existing == null)
+            {
+                return NotFound(new { message = "Không tìm thấy khách hàng." });
+            }
+            existing.Name = customer.Name;
+            existing.PhoneNumber = customer.PhoneNumber;
+            existing.Email = customer.Email;
+            existing.Address = customer.Address;
+            existing.MembershipLevel = string.IsNullOrWhiteSpace(customer.MembershipLevel) ? existing.MembershipLevel : customer.MembershipLevel;
+            await _customerService.UpdateCustomerAsync(existing);
+            return Ok(MapCustomer(existing));
+        }
+
+        [Authorize(Roles = "Admin,Cashier")]
+        [HttpDelete("customers/{id:int}")]
+        public async Task<IActionResult> DeleteCustomer(int id)
+        {
+            await _customerService.DeleteCustomerAsync(id);
+            return Ok(new { ok = true });
+        }
+
+        [Authorize(Roles = "Admin")]
+        [HttpGet("users")]
+        public async Task<IActionResult> Users()
+        {
+            var users = _userManager.Users.ToList();
+            var result = new List<object>();
+            foreach (var user in users)
+            {
+                var roles = await _userManager.GetRolesAsync(user);
+                result.Add(new { id = user.Id, fullName = user.FullName, email = user.Email, roles });
+            }
+            return Ok(new { users = result, roles = _roleManager.Roles.Select(r => r.Name).ToList() });
+        }
+
+        [Authorize(Roles = "Admin")]
+        [HttpPost("users")]
+        public async Task<IActionResult> CreateUser([FromBody] CreateUserRequest request)
+        {
+            var user = new ApplicationUser
+            {
+                FullName = request.FullName ?? "",
+                Email = request.Email,
+                UserName = request.Email,
+                Role = request.Role ?? ""
+            };
+            var result = await _userManager.CreateAsync(user, request.Password ?? "");
+            if (!result.Succeeded)
+            {
+                return BadRequest(new { message = string.Join(" ", result.Errors.Select(e => e.Description)) });
+            }
+            if (!string.IsNullOrWhiteSpace(request.Role))
+            {
+                await _userManager.AddToRoleAsync(user, request.Role);
+            }
+            return Ok(new { id = user.Id });
+        }
+
+        [Authorize(Roles = "Admin")]
+        [HttpPost("users/{id}/role")]
+        public async Task<IActionResult> AssignRole(string id, [FromBody] StatusRequest request)
+        {
+            var user = await _userManager.FindByIdAsync(id);
+            if (user == null)
+            {
+                return NotFound(new { message = "Không tìm thấy người dùng." });
+            }
+            var current = await _userManager.GetRolesAsync(user);
+            await _userManager.RemoveFromRolesAsync(user, current);
+            if (!string.IsNullOrWhiteSpace(request.Status))
+            {
+                await _userManager.AddToRoleAsync(user, request.Status);
+            }
+            return Ok(new { ok = true });
+        }
+
+        [Authorize(Roles = "Cashier,Admin")]
+        [HttpGet("payments/ready")]
+        public async Task<IActionResult> ReadyPayments()
+        {
+            var orders = await _orderService.GetReadyOrdersAsync();
+            return Ok(orders.Select(MapOrder));
+        }
+
+        [Authorize(Roles = "Cashier,Admin")]
+        [HttpPost("payments")]
+        public async Task<IActionResult> Pay([FromBody] PayRequest request)
+        {
+            try
+            {
+                Payment payment = request.PaymentMethod switch
+                {
+                    "Cash" => await _paymentService.ProcessCashPaymentAsync(request.OrderId, request.CustomerInfo, request.CustomerPhone, request.CustomerId),
+                    "Mobile" => await _paymentService.InitiateMobilePaymentAsync(request.OrderId, request.CustomerInfo, request.CustomerPhone, request.CustomerId),
+                    _ => throw new InvalidOperationException("Phương thức thanh toán không hợp lệ.")
+                };
+                return Ok(new { id = payment.Id, status = payment.Status, method = payment.PaymentMethod });
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+        }
+
+        [Authorize(Roles = "Cashier,Admin")]
+        [HttpPost("payments/{id:int}/confirm")]
+        public async Task<IActionResult> ConfirmPayment(int id, [FromBody] ConfirmRequest request)
+        {
+            try
+            {
+                var payment = await _paymentService.CompleteMobilePaymentAsync(id, request.Success);
+                return Ok(new { id = payment.Id, status = payment.Status });
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+        }
+
+        [Authorize(Roles = "Cashier,Admin")]
+        [HttpGet("payments/{id:int}")]
+        public async Task<IActionResult> Payment(int id)
+        {
+            var payment = await _paymentService.GetPaymentWithDetailsAsync(id);
+            if (payment == null)
+            {
+                return NotFound(new { message = "Không tìm thấy thanh toán." });
+            }
+            return Ok(new
+            {
+                id = payment.Id,
+                orderId = payment.OrderId,
+                amount = payment.Amount,
+                paymentMethod = payment.PaymentMethod,
+                paymentDate = payment.PaymentDate,
+                customerInfo = payment.CustomerInfo,
+                status = payment.Status,
+                pointsEarned = payment.PointsEarned,
+                customerName = payment.Customer?.Name,
+                tableName = payment.Order?.Table?.Name,
+                orderTotal = payment.Order?.Total ?? payment.Amount,
+                details = payment.Order?.OrderDetails?.Select(d => new
+                {
+                    name = d.MenuItem?.Name,
+                    quantity = d.Quantity,
+                    price = d.Price
+                })
+            });
+        }
+
+        [Authorize(Roles = "Admin")]
+        [HttpGet("reports/sales")]
+        public async Task<IActionResult> Sales([FromQuery] DateTime? startDate, [FromQuery] DateTime? endDate)
+        {
+            var orders = (await _unitOfWork.Orders.GetAllAsync()).AsEnumerable();
+            var payments = await _unitOfWork.Payments.GetAllAsync();
+            if (startDate.HasValue)
+            {
+                orders = orders.Where(o => o.CreatedAt.Date >= startDate.Value.Date);
+            }
+            if (endDate.HasValue)
+            {
+                orders = orders.Where(o => o.CreatedAt.Date <= endDate.Value.Date);
+            }
+
+            var orderList = orders.ToList();
+            return Ok(new
+            {
+                dailySales = orderList
+                    .GroupBy(o => o.CreatedAt.Date)
+                    .OrderBy(g => g.Key)
+                    .Select(g => new { date = g.Key, total = g.Sum(o => o.Total) }),
+                paymentMethods = payments
+                    .GroupBy(p => p.PaymentMethod)
+                    .Select(g => new { method = g.Key, total = g.Sum(p => p.Amount) })
+            });
+        }
+
+        private async Task SaveRecipes(int menuItemId, List<RecipeWrite>? recipes)
+        {
+            if (recipes == null)
+            {
+                return;
+            }
+            foreach (var recipe in recipes.Where(r => r.InventoryItemId > 0 && r.QuantityRequired > 0))
+            {
+                await _unitOfWork.MenuItemRecipes.AddAsync(new MenuItemRecipe
+                {
+                    MenuItemId = menuItemId,
+                    InventoryItemId = recipe.InventoryItemId,
+                    QuantityRequired = recipe.QuantityRequired
+                });
+            }
+            await _unitOfWork.SaveChangesAsync();
+        }
+
+        private async Task<object> Profile(ApplicationUser user)
+        {
+            var roles = await _userManager.GetRolesAsync(user);
+            return new
+            {
+                authenticated = true,
+                name = string.IsNullOrWhiteSpace(user.FullName) ? user.Email : user.FullName,
+                email = user.Email,
+                roles
+            };
+        }
+
+        private static object MapOrder(Order order) => new
+        {
+            id = order.Id,
+            tableId = order.TableId,
+            tableName = order.Table?.Name,
+            createdAt = order.CreatedAt,
+            status = order.Status,
+            total = order.Total,
+            customerName = order.CustomerName,
+            details = order.OrderDetails?.Select(d => new
+            {
+                id = d.Id,
+                menuItemId = d.MenuItemId,
+                name = d.MenuItem?.Name,
+                quantity = d.Quantity,
+                price = d.Price
+            })
+        };
+
+        private static object MapMenu(MenuItem item) => new
+        {
+            id = item.Id,
+            name = item.Name,
+            price = item.Price,
+            description = item.Description,
+            imageUrl = item.ImageUrl,
+            category = item.Category,
+            isAvailable = item.IsAvailable
+        };
+
+        private static object MapInventory(InventoryItem item) => new
+        {
+            id = item.Id,
+            name = item.Name,
+            quantity = item.Quantity,
+            unit = item.Unit,
+            minimumThreshold = item.MinimumThreshold,
+            expirationDate = item.ExpirationDate
+        };
+
+        private static object MapCustomer(Customer customer) => new
+        {
+            id = customer.Id,
+            name = customer.Name,
+            phoneNumber = customer.PhoneNumber,
+            email = customer.Email,
+            address = customer.Address,
+            loyaltyPoints = customer.LoyaltyPoints,
+            membershipLevel = customer.MembershipLevel,
+            joinDate = customer.JoinDate,
+            totalSpent = customer.TotalSpent,
+            totalOrders = customer.TotalOrders
+        };
+    }
+
+    public class LoginRequest
+    {
+        public string? Email { get; set; }
+        public string? Password { get; set; }
+        public bool RememberMe { get; set; }
+    }
+
+    public class CreateOrderRequest
+    {
+        public int TableId { get; set; }
+        public string? CustomerName { get; set; }
+        public List<OrderItemRequest> Items { get; set; } = new();
+    }
+
+    public class OrderItemRequest
+    {
+        public int MenuItemId { get; set; }
+        public int Quantity { get; set; }
+    }
+
+    public class StatusRequest
+    {
+        public string Status { get; set; } = "";
+    }
+
+    public class MenuWriteRequest
+    {
+        public string Name { get; set; } = "";
+        public decimal Price { get; set; }
+        public string? Description { get; set; }
+        public string? ImageUrl { get; set; }
+        public string? Category { get; set; }
+        public bool IsAvailable { get; set; } = true;
+        public List<RecipeWrite>? Recipes { get; set; }
+    }
+
+    public class RecipeWrite
+    {
+        public int InventoryItemId { get; set; }
+        public decimal QuantityRequired { get; set; }
+    }
+
+    public class StockRequest
+    {
+        public decimal Quantity { get; set; }
+        public string Action { get; set; } = "add";
+        public DateTime ExpirationDate { get; set; }
+    }
+
+    public class CreateUserRequest
+    {
+        public string? FullName { get; set; }
+        public string? Email { get; set; }
+        public string? Password { get; set; }
+        public string? Role { get; set; }
+    }
+
+    public class PayRequest
+    {
+        public int OrderId { get; set; }
+        public string PaymentMethod { get; set; } = "Cash";
+        public string? CustomerInfo { get; set; }
+        public string? CustomerPhone { get; set; }
+        public int? CustomerId { get; set; }
+    }
+
+    public class ConfirmRequest
+    {
+        public bool Success { get; set; }
+    }
+}

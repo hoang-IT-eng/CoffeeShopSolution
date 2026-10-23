@@ -1,63 +1,30 @@
 ﻿@model object
+@{
+    ViewData["Title"] = "Tổng quan điều hành";
+}
 
-<h1>Dashboard - Tổng quan hệ thống</h1>
+<h1>Tổng quan điều hành</h1>
 
-<div class="container-fluid">
-    <!-- Cards thống kê chính -->
-    <div class="row mb-4">
-        <div class="col-md-3">
-            <div class="card bg-primary text-white">
-                <div class="card-body">
-                    <div class="d-flex justify-content-between">
-                        <div>
-                            <h6>Doanh thu hôm nay</h6>
-                            <h4>@ViewBag.DailyRevenue.ToString("C0", new System.Globalization.CultureInfo("vi-VN"))</h4>
-                        </div>
-                        <i class="fas fa-money-bill-wave fa-2x"></i>
-                    </div>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-3">
-            <div class="card bg-success text-white">
-                <div class="card-body">
-                    <div class="d-flex justify-content-between">
-                        <div>
-                            <h6>Đơn hàng mới</h6>
-                            <h4>@ViewBag.NewOrders</h4>
-                        </div>
-                        <i class="fas fa-shopping-cart fa-2x"></i>
-                    </div>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-3">
-            <div class="card bg-info text-white">
-                <div class="card-body">
-                    <div class="d-flex justify-content-between">
-                        <div>
-                            <h6>Bàn đang phục vụ</h6>
-                            <h4>@ViewBag.TablesInUse</h4>
-                        </div>
-                        <i class="fas fa-utensils fa-2x"></i>
-                    </div>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-3">
-            <div class="card bg-warning text-white">
-                <div class="card-body">
-                    <div class="d-flex justify-content-between">
-                        <div>
-                            <h6>Cảnh báo kho</h6>
-                            <h4>@ViewBag.TotalWarnings</h4>
-                            <small>vấn đề cần xử lý</small>
-                        </div>
-                        <i class="fas fa-exclamation-triangle fa-2x"></i>
-                    </div>
-                </div>
-            </div>
-        </div>
+<div class="container-fluid px-0">
+    <div class="stat-grid mb-4">
+        <article class="stat-card">
+            <span>Doanh thu hôm nay</span>
+            <strong>@ViewBag.DailyRevenue.ToString("C0", new System.Globalization.CultureInfo("vi-VN"))</strong>
+        </article>
+        <article class="stat-card">
+            <span>Đơn mới</span>
+            <strong>@ViewBag.NewOrders</strong>
+            <em>Đang xử lý: @ViewBag.ProcessingOrders</em>
+        </article>
+        <article class="stat-card">
+            <span>Bàn đang phục vụ</span>
+            <strong>@ViewBag.TablesInUse</strong>
+        </article>
+        <article class="stat-card">
+            <span>Cảnh báo kho</span>
+            <strong>@ViewBag.TotalWarnings</strong>
+            <em>Cần xử lý</em>
+        </article>
     </div>
 
     <!-- Cảnh báo quản lý kho -->
@@ -176,12 +143,12 @@
                 datasets: [{
                     label: 'Doanh thu (VND)',
                     data: [@Html.Raw(ViewBag.ChartData)],
-                    borderColor: 'rgba(54, 162, 235, 1)',
-                    backgroundColor: 'rgba(54, 162, 235, 0.1)',
+                    borderColor: '#2c1810',
+                    backgroundColor: 'rgba(217, 119, 6, 0.15)',
                     borderWidth: 3,
                     fill: true,
                     tension: 0.4,
-                    pointBackgroundColor: 'rgba(54, 162, 235, 1)',
+                    pointBackgroundColor: '#d97706',
                     pointBorderColor: '#fff',
                     pointBorderWidth: 2,
                     pointRadius: 6

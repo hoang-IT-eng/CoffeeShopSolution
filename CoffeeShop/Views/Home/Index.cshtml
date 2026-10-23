@@ -1,37 +1,24 @@
 ﻿@model IEnumerable<CoffeeShop.Models.Order>
 
 @{
-    ViewData["Title"] = "Trang chủ - CoffeeShop";
+    ViewData["Title"] = "Ca phục vụ";
 }
 
-<h1 class="mb-4">Trang chủ - CoffeeShop</h1>
+<h1>Ca phục vụ</h1>
 
-<!-- Tổng quan trạng thái bàn -->
-<div class="row mb-4">
-    <div class="col-md-4">
-        <div class="card text-white bg-success card-hover">
-            <div class="card-body">
-                <h5 class="card-title">Bàn trống</h5>
-                <p class="card-text display-4">@ViewBag.EmptyTables</p>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-4">
-        <div class="card text-white bg-warning card-hover">
-            <div class="card-body">
-                <h5 class="card-title">Bàn đang phục vụ</h5>
-                <p class="card-text display-4">@ViewBag.OccupiedTables</p>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-4">
-        <div class="card text-white bg-info card-hover">
-            <div class="card-body">
-                <h5 class="card-title">Bàn đã đặt</h5>
-                <p class="card-text display-4">@ViewBag.ReservedTables</p>
-            </div>
-        </div>
-    </div>
+<div class="stat-grid mb-4">
+    <article class="stat-card">
+        <span>Bàn trống</span>
+        <strong>@ViewBag.EmptyTables</strong>
+    </article>
+    <article class="stat-card">
+        <span>Đang phục vụ</span>
+        <strong>@ViewBag.OccupiedTables</strong>
+    </article>
+    <article class="stat-card">
+        <span>Đã đặt</span>
+        <strong>@ViewBag.ReservedTables</strong>
+    </article>
 </div>
 
 <!-- Đơn hàng đang chờ xử lý -->
