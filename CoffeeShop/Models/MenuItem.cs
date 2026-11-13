@@ -1,7 +1,5 @@
-﻿// Models/MenuItem.cs
+﻿using System.ComponentModel.DataAnnotations;
 using CoffeeShop.ViewModels;
-using System.Collections.Generic;
-using System.ComponentModel.DataAnnotations;
 
 namespace CoffeeShop.Models
 {

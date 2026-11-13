@@ -1,5 +1,4 @@
-﻿// Data/ApplicationDbContext.cs
-using CoffeeShop.Models;
+﻿using CoffeeShop.Models;
 using CoffeeShop.ViewModels;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;

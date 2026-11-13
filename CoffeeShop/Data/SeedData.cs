@@ -21,6 +21,8 @@ namespace CoffeeShop.Data
                     await roleManager.CreateAsync(new IdentityRole(roleName));
             }
 
+            // Stable demo accounts for React admin (also created in Program.cs for newadmin).
+            await EnsureUser(userManager, "newadmin@coffee.com", "NewAdmin@123", "Admin An Roastery", "Admin");
             await EnsureUser(userManager, "admin@coffee.com", "Admin@123", "Quản trị viên", "Admin");
             await EnsureUser(userManager, "waiter@coffee.com", "Waiter@123", "Lê Quốc Bảo", "Waiter");
             await EnsureUser(userManager, "cashier@coffee.com", "Cashier@123", "Nguyễn Thu Hà", "Cashier");
@@ -102,24 +104,32 @@ namespace CoffeeShop.Data
 
             var beans = await context.InventoryItems.FirstOrDefaultAsync(i => i.Name == "Hạt Arabica Cầu Đất");
             var milk = await context.InventoryItems.FirstOrDefaultAsync(i => i.Name == "Sữa tươi không đường");
-            if (beans != null && menu.TryGetValue("Espresso", out var espresso) &&
-                !await context.MenuItemRecipes.AnyAsync(r => r.MenuItemId == espresso.Id && r.InventoryItemId == beans.Id))
+            var peach = await context.InventoryItems.FirstOrDefaultAsync(i => i.Name == "Đào ngâm");
+            var butter = await context.InventoryItems.FirstOrDefaultAsync(i => i.Name == "Bơ lạt");
+
+            async Task EnsureRecipe(string menuName, InventoryItem? ingredient, decimal qty)
             {
+                if (ingredient == null || !menu.TryGetValue(menuName, out var menuItem))
+                    return;
+                if (await context.MenuItemRecipes.AnyAsync(r => r.MenuItemId == menuItem.Id && r.InventoryItemId == ingredient.Id))
+                    return;
                 context.MenuItemRecipes.Add(new MenuItemRecipe
                 {
-                    MenuItemId = espresso.Id,
-                    InventoryItemId = beans.Id,
-                    QuantityRequired = 0.018m
+                    MenuItemId = menuItem.Id,
+                    InventoryItemId = ingredient.Id,
+                    QuantityRequired = qty
                 });
             }
-            if (beans != null && milk != null && menu.TryGetValue("Cappuccino", out var cappuccino) &&
-                !await context.MenuItemRecipes.AnyAsync(r => r.MenuItemId == cappuccino.Id))
-            {
-                context.MenuItemRecipes.AddRange(
-                    new MenuItemRecipe { MenuItemId = cappuccino.Id, InventoryItemId = beans.Id, QuantityRequired = 0.018m },
-                    new MenuItemRecipe { MenuItemId = cappuccino.Id, InventoryItemId = milk.Id, QuantityRequired = 0.15m }
-                );
-            }
+
+            await EnsureRecipe("Espresso", beans, 0.018m);
+            await EnsureRecipe("Cà phê Muối", beans, 0.02m);
+            await EnsureRecipe("Bạc xỉu", beans, 0.016m);
+            await EnsureRecipe("Bạc xỉu", milk, 0.12m);
+            await EnsureRecipe("Cappuccino", beans, 0.018m);
+            await EnsureRecipe("Cappuccino", milk, 0.15m);
+            await EnsureRecipe("Cold brew", beans, 0.03m);
+            await EnsureRecipe("Trà đào cam sả", peach, 0.08m);
+            await EnsureRecipe("Croissant bơ", butter, 0.05m);
             await context.SaveChangesAsync();
 
             await EnsureCustomer(context, "Minh Anh", "0903100001", "minhanh@example.com", "Gold", 320);
@@ -182,9 +192,9 @@ namespace CoffeeShop.Data
                     {
                         OrderId = order.Id,
                         Amount = order.Total,
-                        PaymentMethod = sample.DayOffset % 2 == 0 ? "Cash" : "Mobile",
+                        PaymentMethod = sample.DayOffset % 2 == 0 ? "Cash" : "MobileSim",
                         PaymentDate = created.AddMinutes(20),
-                        Status = "Completed",
+                        Status = "Paid",
                         CustomerInfo = sample.Customer,
                         TransactionId = $"MAU-{order.Id}"
                     });
