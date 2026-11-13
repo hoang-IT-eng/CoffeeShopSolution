@@ -88,38 +88,125 @@ namespace CoffeeShop.Controllers.Api
         }
 
         [HttpGet("dashboard")]
-        public async Task<IActionResult> Dashboard()
+        public async Task<IActionResult> Dashboard([FromQuery] string? range)
         {
+            var key = (range ?? "today").ToLowerInvariant();
+            if (key is not ("today" or "week" or "month" or "year")) key = "today";
+
             var today = DateTime.Today;
+            var end = today.AddDays(1);
+            var start = key switch
+            {
+                "week" => today.AddDays(-6),
+                "month" => today.AddDays(-29),
+                "year" => new DateTime(today.Year, 1, 1),
+                _ => today
+            };
+            var spanDays = Math.Max(1, (end - start).Days);
+            var prevStart = start.AddDays(-spanDays);
+            var weekStart = today.AddDays(-6);
+            var fetchFrom = prevStart < weekStart ? prevStart : weekStart;
+
+            var orders = (await _unitOfWork.Orders.FindWithIncludeAsync(
+                o => o.CreatedAt >= fetchFrom && o.CreatedAt < end,
+                o => o.Table)).ToList();
+            var current = orders.Where(o => o.CreatedAt >= start && o.CreatedAt < end).ToList();
+            var previous = orders.Where(o => o.CreatedAt >= prevStart && o.CreatedAt < start).ToList();
+            var todayOrders = orders.Where(o => o.CreatedAt >= today && o.CreatedAt < end).ToList();
+
+            var open = (await _unitOfWork.Orders.FindWithIncludeAsync(
+                o => o.Status == "New" || o.Status == "Processing" || o.Status == "Ready",
+                o => o.Table)).ToList();
+            var tables = (await _unitOfWork.Tables.GetAllAsync())
+                .OrderBy(t => t.Area)
+                .ThenBy(t => t.Name)
+                .ToList();
+
             var lowStock = (await _inventoryService.GetLowStockItemsAsync()).ToList();
             var nearExpiry = (await _inventoryService.GetExpiringItemsAsync(7)).ToList();
-            var expired = (await _inventoryService.GetItemsByExpirationAsync(today)).Where(i => i.ExpirationDate < today).ToList();
-            var ordersToday = await _unitOfWork.Orders.FindAsync(o => o.CreatedAt.Date == today);
-            var newOrders = await _unitOfWork.Orders.FindAsync(o => o.Status == "New");
-            var processing = await _unitOfWork.Orders.FindAsync(o => o.Status == "Processing");
-            var occupied = await _unitOfWork.Tables.FindAsync(t => t.Status == "Occupied");
+            var expired = (await _inventoryService.GetItemsByExpirationAsync(today))
+                .Where(i => i.ExpirationDate < today)
+                .ToList();
 
-            var labels = new List<string>();
-            var data = new List<decimal>();
-            foreach (var day in Enumerable.Range(0, 7).Select(d => today.AddDays(-d)).OrderBy(d => d))
+            var points = new List<object>();
+            if (key == "today")
             {
-                var dayOrders = await _unitOfWork.Orders.FindAsync(o => o.CreatedAt.Date == day);
-                labels.Add(day.ToString("dd/MM"));
-                data.Add(dayOrders.Sum(o => o.Total));
+                for (var hour = 7; hour <= 22; hour++)
+                    points.Add(ChartPoint($"{hour}:00", current.Where(o => o.CreatedAt.Hour == hour)));
             }
+            else if (key == "year")
+            {
+                for (var month = 1; month <= today.Month; month++)
+                    points.Add(ChartPoint($"T{month}", current.Where(o => o.CreatedAt.Month == month && o.CreatedAt.Year == today.Year)));
+            }
+            else
+            {
+                for (var day = start.Date; day < end; day = day.AddDays(1))
+                {
+                    var next = day.AddDays(1);
+                    points.Add(ChartPoint(day.ToString("dd/MM"), current.Where(o => o.CreatedAt >= day && o.CreatedAt < next)));
+                }
+            }
+
+            var week = new List<object>();
+            var weekLabels = new List<string>();
+            var weekTotals = new List<decimal>();
+            for (var day = weekStart; day < end; day = day.AddDays(1))
+            {
+                var next = day.AddDays(1);
+                var total = orders.Where(o => o.CreatedAt >= day && o.CreatedAt < next).Sum(o => o.Total);
+                week.Add(new { label = day.ToString("dd/MM"), revenue = total, isToday = day == today });
+                weekLabels.Add(day.ToString("dd/MM"));
+                weekTotals.Add(total);
+            }
+
+            var todayHours = Enumerable.Range(7, 16).Select(hour => new
+            {
+                label = hour.ToString(),
+                revenue = todayOrders.Where(o => o.CreatedAt.Hour == hour).Sum(o => o.Total)
+            });
+
+            var hoursOpen = DateTime.Now <= today.AddHours(7)
+                ? 1
+                : Math.Max(1, (DateTime.Now - today.AddHours(7)).TotalHours);
+
+            var recentSource = open.Count > 0
+                ? open.OrderByDescending(o => o.CreatedAt)
+                : current.OrderByDescending(o => o.CreatedAt);
 
             return Ok(new
             {
-                dailyRevenue = ordersToday.Sum(o => o.Total),
-                newOrders = newOrders.Count(),
-                processingOrders = processing.Count(),
-                tablesInUse = occupied.Count(),
+                range = key,
+                revenue = current.Sum(o => o.Total),
+                previousRevenue = previous.Sum(o => o.Total),
+                orderCount = current.Count,
+                previousOrderCount = previous.Count,
+                openNew = open.Count(o => o.Status == "New"),
+                openMaking = open.Count(o => o.Status == "Processing"),
+                openReady = open.Count(o => o.Status == "Ready"),
+                doneInRange = current.Count(o => o.Status == "Completed"),
+                todayRevenue = todayOrders.Sum(o => o.Total),
+                todayOrders = todayOrders.Count,
+                ordersPerHour = Math.Round(todayOrders.Count / hoursOpen, 1),
+                tablesInUse = tables.Count(t => t.Status == "Occupied"),
+                tablesEmpty = tables.Count(t => t.Status is "Empty" or "Trống"),
+                tablesReserved = tables.Count(t => t.Status == "Reserved"),
+                tableCount = tables.Count,
+                tables = tables.Select(t => new { id = t.Id, name = t.Name, area = t.Area, status = t.Status }),
                 totalWarnings = lowStock.Count + nearExpiry.Count + expired.Count,
                 lowStock = lowStock.Select(MapInventory),
                 nearExpiry = nearExpiry.Select(MapInventory),
                 expired = expired.Select(MapInventory),
-                chartLabels = labels,
-                chartData = data
+                points,
+                week,
+                todayHours,
+                recentKind = open.Count > 0 ? "open" : "range",
+                recentOrders = recentSource.Take(6).Select(MapOrder),
+                dailyRevenue = todayOrders.Sum(o => o.Total),
+                newOrders = open.Count(o => o.Status == "New"),
+                processingOrders = open.Count(o => o.Status == "Processing"),
+                chartLabels = weekLabels,
+                chartData = weekTotals
             });
         }
 
@@ -137,11 +224,37 @@ namespace CoffeeShop.Controllers.Api
             });
         }
 
-        [Authorize(Roles = "Waiter,Admin")]
+        [Authorize(Roles = "Waiter,Admin,Cashier")]
         [HttpGet("orders")]
         public async Task<IActionResult> Orders()
         {
-            var orders = await _orderService.GetPendingOrdersAsync();
+            var since = DateTime.Today.AddDays(-60);
+            var orders = (await _unitOfWork.Orders.FindWithIncludeAsync(
+                o => o.CreatedAt >= since,
+                o => o.Table))
+                .OrderByDescending(o => o.CreatedAt)
+                .Take(40)
+                .ToList();
+
+            var ids = orders.Select(o => o.Id).ToList();
+            var details = ids.Count == 0
+                ? new List<OrderDetail>()
+                : (await _unitOfWork.OrderDetails.FindAsync(d => ids.Contains(d.OrderId))).ToList();
+            var menuIds = details.Select(d => d.MenuItemId).Distinct().ToList();
+            var menus = menuIds.Count == 0
+                ? new Dictionary<int, MenuItem>()
+                : (await _unitOfWork.MenuItems.FindAsync(m => menuIds.Contains(m.Id))).ToDictionary(m => m.Id);
+
+            foreach (var order in orders)
+            {
+                order.OrderDetails = details.Where(d => d.OrderId == order.Id).ToList();
+                foreach (var detail in order.OrderDetails)
+                {
+                    if (menus.TryGetValue(detail.MenuItemId, out var item))
+                        detail.MenuItem = item;
+                }
+            }
+
             return Ok(orders.Select(MapOrder));
         }
 
@@ -735,6 +848,27 @@ namespace CoffeeShop.Controllers.Api
             };
         }
 
+        private static object ChartPoint(string label, IEnumerable<Order> rows)
+        {
+            var list = rows.ToList();
+            decimal Sum(params string[] statuses) =>
+                list.Where(o => o.Status != null && statuses.Contains(o.Status)).Sum(o => o.Total);
+            var opened = Sum("New");
+            var making = Sum("Processing", "Ready", "PendingMobilePayment");
+            var done = Sum("Completed");
+            var total = list.Sum(o => o.Total);
+            return new
+            {
+                label,
+                revenue = total,
+                opened,
+                making,
+                done,
+                other = total - opened - making - done,
+                count = list.Count
+            };
+        }
+
         private static object MapOrder(Order order) => new
         {
             id = order.Id,
@@ -750,7 +884,9 @@ namespace CoffeeShop.Controllers.Api
                 menuItemId = d.MenuItemId,
                 name = d.MenuItem?.Name,
                 quantity = d.Quantity,
-                price = d.Price
+                price = d.Price,
+                imageUrl = d.MenuItem?.ImageUrl,
+                category = d.MenuItem?.Category
             })
         };
 

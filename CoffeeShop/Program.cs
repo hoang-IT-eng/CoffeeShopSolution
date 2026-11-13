@@ -77,9 +77,8 @@
                .AllowAnyMethod()
                .AllowCredentials());
    });
-builder.Services.AddControllersWithViews();
 
-// Add application services
+   // Add application services
 builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
    builder.Services.AddScoped<IOrderService, OrderService>();
    builder.Services.AddScoped<IInventoryService, InventoryService>();
@@ -94,7 +93,15 @@ var app = builder.Build();
    }
    else
    {
-       app.UseExceptionHandler("/Home/Error");
+       app.UseExceptionHandler(errorApp =>
+       {
+           errorApp.Run(async context =>
+           {
+               context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+               context.Response.ContentType = "application/json";
+               await context.Response.WriteAsync("{\"message\":\"Có lỗi trên máy chủ.\"}");
+           });
+       });
        app.UseHsts();
    }
 
@@ -107,9 +114,7 @@ var app = builder.Build();
    app.UseAuthentication();
    app.UseAuthorization();
 
-   app.MapControllerRoute(
-       name: "default",
-       pattern: "{controller=Home}/{action=Index}/{id?}");
+   app.MapControllers();
 
    // Seed data
    using (var scope = app.Services.CreateScope())
