@@ -14,7 +14,7 @@ namespace CoffeeShop.Services
         Task AddStockAsync(int inventoryItemId, decimal quantity, DateTime expirationDate);
         Task<IEnumerable<InventoryItem>> GetItemsByExpirationAsync(DateTime? beforeDate);
         Task<IEnumerable<InventoryItem>> GetExpiringItemsAsync(int daysFromNow); // Nguyên liệu sắp hết hạn
-        Task<InventoryItem> GetByIdAsync(int id);
+        Task<InventoryItem?> GetByIdAsync(int id);
         Task DeleteAsync(int id);
         Task<(bool isAvailable, List<string> missingItems)> CheckAvailabilityWithDetailsAsync(List<OrderDetail> orderDetails);
         Task RestockFromOrderAsync(List<OrderDetail> orderDetails);
