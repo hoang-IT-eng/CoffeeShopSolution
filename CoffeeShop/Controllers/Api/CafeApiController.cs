@@ -1,10 +1,12 @@
 using CoffeeShop.Data.UnitOfWork;
+using CoffeeShop.Hubs;
 using CoffeeShop.Models;
 using CoffeeShop.Services;
 using CoffeeShop.ViewModels;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
 
 namespace CoffeeShop.Controllers.Api
 {
@@ -34,6 +36,8 @@ namespace CoffeeShop.Controllers.Api
         private readonly IInventoryService _inventoryService;
         private readonly IPaymentService _paymentService;
         private readonly ICustomerService _customerService;
+        private readonly IShiftService _shiftService;
+        private readonly IHubContext<KitchenHub> _kitchenHub;
 
         public CafeApiController(
             SignInManager<ApplicationUser> signInManager,
@@ -43,7 +47,9 @@ namespace CoffeeShop.Controllers.Api
             IOrderService orderService,
             IInventoryService inventoryService,
             IPaymentService paymentService,
-            ICustomerService customerService)
+            ICustomerService customerService,
+            IShiftService shiftService,
+            IHubContext<KitchenHub> kitchenHub)
         {
             _signInManager = signInManager;
             _userManager = userManager;
@@ -53,6 +59,8 @@ namespace CoffeeShop.Controllers.Api
             _inventoryService = inventoryService;
             _paymentService = paymentService;
             _customerService = customerService;
+            _shiftService = shiftService;
+            _kitchenHub = kitchenHub;
         }
 
         [AllowAnonymous]
@@ -370,6 +378,12 @@ namespace CoffeeShop.Controllers.Api
                 await _unitOfWork.SaveChangesAsync();
             }
 
+            var created = await _orderService.GetOrderWithDetailsAsync(order.Id);
+            if (created != null)
+            {
+                await BroadcastKitchenAsync("orderCreated", created);
+            }
+
             return Ok(new { id = order.Id, message = $"Đã tạo đơn hàng #{order.Id}." });
         }
 
@@ -405,6 +419,12 @@ namespace CoffeeShop.Controllers.Api
             }
 
             await _orderService.UpdateStatusAsync(id, next);
+            var updated = await _orderService.GetOrderWithDetailsAsync(id);
+            if (updated != null)
+            {
+                await BroadcastKitchenAsync("orderStatusChanged", updated);
+            }
+
             return Ok(new { message = $"Đơn #{id} → {next}." });
         }
 
@@ -430,6 +450,12 @@ namespace CoffeeShop.Controllers.Api
 
             await _orderService.UpdateStatusAsync(id, "Cancelled");
             await ReleaseTableIfIdleAsync(order.TableId, id);
+            var cancelled = await _orderService.GetOrderWithDetailsAsync(id);
+            if (cancelled != null)
+            {
+                await BroadcastKitchenAsync("orderCancelled", cancelled);
+            }
+
             return Ok(new { message = $"Đơn #{id} đã được hủy." });
         }
 
@@ -875,6 +901,56 @@ namespace CoffeeShop.Controllers.Api
         }
 
         [Authorize(Roles = "Cashier,Admin,Waiter")]
+        [HttpGet("shift")]
+        public async Task<IActionResult> GetShift()
+        {
+            var shift = await _shiftService.GetCurrentAsync();
+            if (shift == null)
+            {
+                return Ok(new { open = false, shift = (object?)null });
+            }
+
+            return Ok(new { open = true, shift = await _shiftService.MapAsync(shift) });
+        }
+
+        [Authorize(Roles = "Cashier,Admin")]
+        [HttpPost("shift/open")]
+        public async Task<IActionResult> OpenShift([FromBody] ShiftOpenRequest? request)
+        {
+            try
+            {
+                var user = await _userManager.GetUserAsync(User);
+                var shift = await _shiftService.OpenAsync(
+                    user?.Email ?? user?.UserName ?? "staff",
+                    request?.OpeningFloat ?? 0,
+                    request?.Notes);
+                return Ok(await _shiftService.MapAsync(shift));
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+        }
+
+        [Authorize(Roles = "Cashier,Admin")]
+        [HttpPost("shift/close")]
+        public async Task<IActionResult> CloseShift([FromBody] ShiftCloseRequest? request)
+        {
+            try
+            {
+                var user = await _userManager.GetUserAsync(User);
+                var shift = await _shiftService.CloseAsync(
+                    user?.Email ?? user?.UserName ?? "staff",
+                    request?.Notes);
+                return Ok(await _shiftService.MapAsync(shift));
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+        }
+
+        [Authorize(Roles = "Cashier,Admin,Waiter")]
         [HttpGet("payments/ready")]
         public async Task<IActionResult> ReadyPayments()
         {
@@ -1278,6 +1354,11 @@ namespace CoffeeShop.Controllers.Api
                 _ => key
             };
         }
+
+        private async Task BroadcastKitchenAsync(string eventName, Order order)
+        {
+            await _kitchenHub.Clients.Group(KitchenHub.GroupName).SendAsync(eventName, MapOrder(order));
+        }
     }
 
 
@@ -1375,6 +1456,17 @@ namespace CoffeeShop.Controllers.Api
         public bool? Success { get; set; }
         /// <summary>Paid or Failed</summary>
         public string? Result { get; set; }
+    }
+
+    public class ShiftOpenRequest
+    {
+        public decimal OpeningFloat { get; set; }
+        public string? Notes { get; set; }
+    }
+
+    public class ShiftCloseRequest
+    {
+        public string? Notes { get; set; }
     }
 }
 

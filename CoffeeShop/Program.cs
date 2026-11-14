@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using CoffeeShop.Data;
 using CoffeeShop.Data.UnitOfWork;
+using CoffeeShop.Hubs;
 using CoffeeShop.Models;
 using CoffeeShop.Services;
 using Microsoft.AspNetCore.Identity;
@@ -88,6 +89,8 @@ builder.Services.AddScoped<IOrderService, OrderService>();
 builder.Services.AddScoped<IInventoryService, InventoryService>();
 builder.Services.AddScoped<IPaymentService, PaymentService>();
 builder.Services.AddScoped<ICustomerService, CustomerService>();
+builder.Services.AddScoped<IShiftService, ShiftService>();
+builder.Services.AddSignalR();
 
 var app = builder.Build();
 
@@ -116,6 +119,7 @@ app.UseCors("Frontend");
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
+app.MapHub<KitchenHub>("/hubs/kitchen");
 
 using (var scope = app.Services.CreateScope())
 {

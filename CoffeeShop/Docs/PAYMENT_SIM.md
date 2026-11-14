@@ -1,6 +1,6 @@
 # An Roastery — Simulated payments
 
-Fake checkout for the React admin. No MoMo / VNPay / Stripe keys.
+Fake checkout for the React admin. No MoMo / VNPay / Stripe keys or merchant secrets.
 
 ## Methods
 
@@ -11,9 +11,11 @@ Fake checkout for the React admin. No MoMo / VNPay / Stripe keys.
 | `MobileSim` | Creates **Pending** payment + `checkoutUrl` / `qrPayload`. Confirm via page, API, or callback. |
 | `Mobile` | Alias for `MobileSim` (existing React PayPage). |
 
-Canonical statuses: **Pending** → **Paid** | **Failed**.
+Canonical statuses: **Pending** → **Paid** | **Failed** (API also exposes `legacyStatus` `PendingMobile` / `Completed` for older FE).
 
-Stock was already deducted when kitchen marked the order **Ready**; payment does not deduct again.
+Stock was already deducted when kitchen marked the order **Ready**; payment never deducts again.
+
+Paid MobileSim / Cash / Card amounts roll into the open cash shift (`GET/POST /api/shift*`) when the cashier closes the shift.
 
 ## Local happy path (no ngrok)
 
