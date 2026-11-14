@@ -1,7 +1,4 @@
-﻿// Services/IOrderService.cs
-using CoffeeShop.Models;
-using System.Collections.Generic;
-using System.Threading.Tasks;
+﻿using CoffeeShop.Models;
 
 namespace CoffeeShop.Services
 {
@@ -11,7 +8,7 @@ namespace CoffeeShop.Services
         Task<IEnumerable<Order>> GetPendingOrdersAsync();
         Task<IEnumerable<Order>> GetReadyOrdersAsync();
         Task UpdateStatusAsync(int orderId, string status);
-        Task<Order> GetByIdAsync(int orderId);
-        Task<Order> GetOrderWithDetailsAsync(int orderId);
+        Task<Order?> GetByIdAsync(int orderId);
+        Task<Order?> GetOrderWithDetailsAsync(int orderId);
     }
 }

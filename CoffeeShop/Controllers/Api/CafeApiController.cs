@@ -14,6 +14,18 @@ namespace CoffeeShop.Controllers.Api
     [IgnoreAntiforgeryToken]
     public class CafeApiController : ControllerBase
     {
+        private static readonly HashSet<string> AllowedRoles = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "Admin", "Cashier", "Waiter"
+        };
+
+        private static readonly Dictionary<string, string[]> StatusTransitions = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["New"] = new[] { "Processing", "Cancelled" },
+            ["Processing"] = new[] { "Ready", "Cancelled" },
+            ["Ready"] = new[] { "Cancelled" }
+        };
+
         private readonly SignInManager<ApplicationUser> _signInManager;
         private readonly UserManager<ApplicationUser> _userManager;
         private readonly RoleManager<IdentityRole> _roleManager;
@@ -58,7 +70,12 @@ namespace CoffeeShop.Controllers.Api
                 return BadRequest(new { message = "Email không tồn tại." });
             }
 
-            var result = await _signInManager.PasswordSignInAsync(user.UserName!, request.Password, request.RememberMe, lockoutOnFailure: false);
+            var result = await _signInManager.PasswordSignInAsync(
+                user.UserName!,
+                request.Password,
+                request.RememberMe,
+                lockoutOnFailure: false);
+
             if (!result.Succeeded)
             {
                 return BadRequest(new { message = "Mật khẩu không đúng." });
@@ -119,7 +136,7 @@ namespace CoffeeShop.Controllers.Api
             var todayOrders = orders.Where(o => o.CreatedAt >= today && o.CreatedAt < end).ToList();
 
             var open = (await _unitOfWork.Orders.FindWithIncludeAsync(
-                o => o.Status == "New" || o.Status == "Processing" || o.Status == "Ready",
+                o => o.Status == "New" || o.Status == "Processing" || o.Status == "Ready" || o.Status == "PendingMobilePayment",
                 o => o.Table)).ToList();
             var tables = (await _unitOfWork.Tables.GetAllAsync())
                 .OrderBy(t => t.Area)
@@ -187,7 +204,7 @@ namespace CoffeeShop.Controllers.Api
                 previousOrderCount = previous.Count,
                 openNew = open.Count(o => o.Status == "New"),
                 openMaking = open.Count(o => o.Status == "Processing"),
-                openReady = open.Count(o => o.Status == "Ready"),
+                openReady = open.Count(o => o.Status is "Ready" or "PendingMobilePayment"),
                 doneInRange = current.Count(o => o.Status == "Completed"),
                 todayRevenue = todayOrders.Sum(o => o.Total),
                 todayOrders = todayOrders.Count,
@@ -218,11 +235,10 @@ namespace CoffeeShop.Controllers.Api
         public async Task<IActionResult> Home()
         {
             var tables = (await _unitOfWork.Tables.GetAllAsync()).ToList();
-            // Floor board needs New/Processing/Ready/PendingMobilePayment for table ↔ order sync.
             var pending = await _orderService.GetPendingOrdersAsync();
             return Ok(new
             {
-                emptyTables = tables.Count(t => t.Status == "Empty" || t.Status == "Trống"),
+                emptyTables = tables.Count(t => t.Status == "Empty"),
                 occupiedTables = tables.Count(t => t.Status == "Occupied"),
                 reservedTables = tables.Count(t => t.Status == "Reserved"),
                 orders = pending.Select(MapOrder)
@@ -238,7 +254,7 @@ namespace CoffeeShop.Controllers.Api
                 o => o.CreatedAt >= since,
                 o => o.Table))
                 .OrderByDescending(o => o.CreatedAt)
-                .Take(40)
+                .Take(80)
                 .ToList();
 
             var ids = orders.Select(o => o.Id).ToList();
@@ -271,7 +287,7 @@ namespace CoffeeShop.Controllers.Api
             return order == null ? NotFound(new { message = "Không tìm thấy đơn hàng." }) : Ok(MapOrder(order));
         }
 
-        [Authorize(Roles = "Waiter,Admin")]
+        [Authorize(Roles = "Waiter,Admin,Cashier")]
         [HttpGet("orders/form")]
         public async Task<IActionResult> OrderForm()
         {
@@ -279,12 +295,15 @@ namespace CoffeeShop.Controllers.Api
             var menu = await _unitOfWork.MenuItems.GetAllAsync();
             return Ok(new
             {
-                tables = tables.Select(t => new { id = t.Id, name = t.Name, area = t.Area, status = t.Status }),
+                tables = tables
+                    .OrderBy(t => t.Area)
+                    .ThenBy(t => t.Name)
+                    .Select(t => new { id = t.Id, name = t.Name, area = t.Area, status = t.Status }),
                 menuItems = menu.Where(m => m.IsAvailable).Select(MapMenu)
             });
         }
 
-        [Authorize(Roles = "Waiter,Admin")]
+        [Authorize(Roles = "Waiter,Admin,Cashier")]
         [HttpPost("orders")]
         public async Task<IActionResult> CreateOrder([FromBody] CreateOrderRequest request)
         {
@@ -296,7 +315,7 @@ namespace CoffeeShop.Controllers.Api
             var table = await _unitOfWork.Tables.GetByIdAsync(request.TableId);
             if (table == null)
             {
-                return BadRequest(new { message = "Không tìm thấy bàn." });
+                return BadRequest(new { message = "Bàn không tồn tại." });
             }
 
             var details = request.Items
@@ -354,7 +373,7 @@ namespace CoffeeShop.Controllers.Api
             return Ok(new { id = order.Id, message = $"Đã tạo đơn hàng #{order.Id}." });
         }
 
-        [Authorize(Roles = "Waiter,Admin")]
+        [Authorize(Roles = "Waiter,Admin,Cashier")]
         [HttpPost("orders/{id:int}/status")]
         public async Task<IActionResult> UpdateOrderStatus(int id, [FromBody] StatusRequest request)
         {
@@ -365,27 +384,31 @@ namespace CoffeeShop.Controllers.Api
             }
 
             var next = (request.Status ?? "").Trim();
-            if (!IsAllowedTransition(order.Status, next))
+            if (!StatusTransitions.TryGetValue(order.Status, out var allowed) || !allowed.Contains(next, StringComparer.OrdinalIgnoreCase))
             {
                 return BadRequest(new { message = $"Không chuyển được từ {order.Status} sang {next}." });
             }
 
-            if (next == "Ready" && order.Status != "Ready")
+            if (string.Equals(next, "Cancelled", StringComparison.OrdinalIgnoreCase))
             {
-                var details = order.OrderDetails?.ToList() ?? new List<OrderDetail>();
-                var (available, missing) = await _inventoryService.CheckAvailabilityWithDetailsAsync(details);
+                return await CancelOrder(id);
+            }
+
+            if (string.Equals(next, "Ready", StringComparison.OrdinalIgnoreCase) && order.Status != "Ready")
+            {
+                var (available, missing) = await _inventoryService.CheckAvailabilityWithDetailsAsync(order.OrderDetails.ToList());
                 if (!available)
                 {
                     return BadRequest(new { message = "Không đủ nguyên liệu: " + string.Join(", ", missing) });
                 }
-                await _inventoryService.DeductStockAsync(details);
+                await _inventoryService.DeductStockAsync(order.OrderDetails.ToList());
             }
 
             await _orderService.UpdateStatusAsync(id, next);
-            return Ok(new { message = "Đã cập nhật trạng thái.", status = next });
+            return Ok(new { message = $"Đơn #{id} → {next}." });
         }
 
-        [Authorize(Roles = "Waiter,Admin")]
+        [Authorize(Roles = "Waiter,Admin,Cashier")]
         [HttpPost("orders/{id:int}/cancel")]
         public async Task<IActionResult> CancelOrder(int id)
         {
@@ -395,24 +418,19 @@ namespace CoffeeShop.Controllers.Api
                 return NotFound(new { message = "Không tìm thấy đơn hàng." });
             }
 
-            if (order.Status is "New" or "Processing" or "Ready")
+            if (order.Status is "Completed" or "Cancelled")
             {
-                if (order.Status == "Ready" && order.OrderDetails != null)
-                {
-                    await _inventoryService.RestockFromOrderAsync(order.OrderDetails.ToList());
-                }
-
-                await _orderService.UpdateStatusAsync(id, "Cancelled");
-                await ReleaseTableIfIdleAsync(order.TableId, id);
-                return Ok(new
-                {
-                    message = order.Status == "Ready"
-                        ? $"Đơn #{id} đã hủy và hoàn nguyên liệu."
-                        : $"Đơn #{id} đã được hủy."
-                });
+                return BadRequest(new { message = $"Không hủy được đơn trạng thái {order.Status}." });
             }
 
-            return BadRequest(new { message = $"Không hủy được đơn trạng thái {order.Status}." });
+            if (order.Status is "Ready" or "PendingMobilePayment")
+            {
+                await _inventoryService.RestockFromOrderAsync(order.OrderDetails.ToList());
+            }
+
+            await _orderService.UpdateStatusAsync(id, "Cancelled");
+            await ReleaseTableIfIdleAsync(order.TableId, id);
+            return Ok(new { message = $"Đơn #{id} đã được hủy." });
         }
 
         [HttpGet("tables")]
@@ -443,6 +461,7 @@ namespace CoffeeShop.Controllers.Api
             }));
         }
 
+        [Authorize(Roles = "Waiter,Admin,Cashier")]
         [HttpPost("tables/{id:int}/status")]
         public async Task<IActionResult> UpdateTable(int id, [FromBody] StatusRequest request)
         {
@@ -463,10 +482,7 @@ namespace CoffeeShop.Controllers.Api
                     o.TableId == id && OrderService.IsOpenStatus(o.Status));
                 if (open.Any())
                 {
-                    return BadRequest(new
-                    {
-                        message = "Bàn còn đơn mở. Hủy hoặc thanh toán đơn trước khi đánh trống."
-                    });
+                    return BadRequest(new { message = "Bàn còn đơn đang mở — không thể đặt Trống." });
                 }
             }
 
@@ -481,7 +497,16 @@ namespace CoffeeShop.Controllers.Api
         public async Task<IActionResult> Menu()
         {
             var items = await _unitOfWork.MenuItems.GetAllAsync();
-            return Ok(items.Select(MapMenu));
+            return Ok(items.OrderBy(m => m.Category).ThenBy(m => m.Name).Select(MapMenu));
+        }
+
+        // ingredients before {id} so "ingredients" is never ambiguous.
+        [Authorize(Roles = "Admin")]
+        [HttpGet("menu/ingredients")]
+        public async Task<IActionResult> Ingredients()
+        {
+            var inventory = await _unitOfWork.InventoryItems.GetAllAsync();
+            return Ok(inventory.OrderBy(i => i.Name).Select(i => new { id = i.Id, name = i.Name, unit = i.Unit }));
         }
 
         [Authorize(Roles = "Admin")]
@@ -509,14 +534,6 @@ namespace CoffeeShop.Controllers.Api
         }
 
         [Authorize(Roles = "Admin")]
-        [HttpGet("menu/ingredients")]
-        public async Task<IActionResult> Ingredients()
-        {
-            var inventory = await _unitOfWork.InventoryItems.GetAllAsync();
-            return Ok(inventory.Select(i => new { id = i.Id, name = i.Name, unit = i.Unit }));
-        }
-
-        [Authorize(Roles = "Admin")]
         [HttpPost("menu")]
         public async Task<IActionResult> CreateMenu([FromBody] MenuWriteRequest request)
         {
@@ -531,7 +548,7 @@ namespace CoffeeShop.Controllers.Api
                 Price = request.Price,
                 Description = request.Description ?? "",
                 ImageUrl = request.ImageUrl ?? "",
-                Category = string.IsNullOrWhiteSpace(request.Category) ? "Uncategorized" : request.Category,
+                Category = string.IsNullOrWhiteSpace(request.Category) ? "Uncategorized" : request.Category.Trim(),
                 IsAvailable = request.IsAvailable
             };
             await _unitOfWork.MenuItems.AddAsync(menuItem);
@@ -550,11 +567,16 @@ namespace CoffeeShop.Controllers.Api
                 return NotFound(new { message = "Không tìm thấy món." });
             }
 
+            if (string.IsNullOrWhiteSpace(request.Name) || request.Price <= 0)
+            {
+                return BadRequest(new { message = "Tên và giá món là bắt buộc." });
+            }
+
             menuItem.Name = request.Name.Trim();
             menuItem.Price = request.Price;
             menuItem.Description = request.Description ?? "";
             menuItem.ImageUrl = request.ImageUrl ?? "";
-            menuItem.Category = string.IsNullOrWhiteSpace(request.Category) ? "Uncategorized" : request.Category;
+            menuItem.Category = string.IsNullOrWhiteSpace(request.Category) ? "Uncategorized" : request.Category.Trim();
             menuItem.IsAvailable = request.IsAvailable;
             _unitOfWork.MenuItems.Update(menuItem);
             foreach (var recipe in menuItem.Recipes.ToList())
@@ -579,10 +601,11 @@ namespace CoffeeShop.Controllers.Api
             var used = await _unitOfWork.OrderDetails.FindAsync(d => d.MenuItemId == id);
             if (used.Any())
             {
+                // Soft-retire so historical orders stay intact.
                 menuItem.IsAvailable = false;
                 _unitOfWork.MenuItems.Update(menuItem);
                 await _unitOfWork.SaveChangesAsync();
-                return Ok(new { ok = true, softDeleted = true, message = "Món đã từng bán — đã ẩn khỏi menu." });
+                return Ok(new { ok = true, retired = true, message = "Món đã từng bán — đã ẩn khỏi thực đơn." });
             }
 
             foreach (var recipe in menuItem.Recipes.ToList())
@@ -599,7 +622,7 @@ namespace CoffeeShop.Controllers.Api
         public async Task<IActionResult> Inventory([FromQuery] DateTime? beforeDate)
         {
             var items = await _inventoryService.GetItemsByExpirationAsync(beforeDate);
-            return Ok(items.Select(MapInventory));
+            return Ok(items.OrderBy(i => i.Name).Select(MapInventory));
         }
 
         [Authorize(Roles = "Admin")]
@@ -612,7 +635,7 @@ namespace CoffeeShop.Controllers.Api
             }
             if (request.Quantity < 0 || request.MinimumThreshold < 0)
             {
-                return BadRequest(new { message = "Số lượng và ngưỡng tối thiểu không được âm." });
+                return BadRequest(new { message = "Số lượng / ngưỡng không hợp lệ." });
             }
 
             var item = new InventoryItem
@@ -643,21 +666,25 @@ namespace CoffeeShop.Controllers.Api
             {
                 return BadRequest(new { message = "Số lượng phải lớn hơn 0." });
             }
-            if (request.Action == "deduct" && item.Quantity < request.Quantity)
+
+            var action = (request.Action ?? "add").Trim().ToLowerInvariant();
+            if (action == "deduct" && item.Quantity < request.Quantity)
             {
                 return BadRequest(new { message = $"Không đủ hàng. Hiện có {item.Quantity} {item.Unit}." });
             }
-            if (request.Action == "add")
+
+            if (action == "add")
             {
-                await _inventoryService.AddStockAsync(id, request.Quantity, request.ExpirationDate);
+                var expiry = request.ExpirationDate ?? item.ExpirationDate;
+                await _inventoryService.AddStockAsync(id, request.Quantity, expiry);
             }
-            else if (request.Action == "deduct")
+            else if (action == "deduct")
             {
                 await _inventoryService.AddStockAsync(id, -request.Quantity, item.ExpirationDate);
             }
             else
             {
-                return BadRequest(new { message = "Hành động không hợp lệ." });
+                return BadRequest(new { message = "Hành động không hợp lệ (add|deduct)." });
             }
             return Ok(new { ok = true });
         }
@@ -675,7 +702,7 @@ namespace CoffeeShop.Controllers.Api
             var recipes = await _unitOfWork.MenuItemRecipes.FindAsync(r => r.InventoryItemId == id);
             if (recipes.Any())
             {
-                return BadRequest(new { message = "Nguyên liệu đang dùng trong công thức món. Gỡ công thức trước khi xóa." });
+                return BadRequest(new { message = "Nguyên liệu đang dùng trong công thức món — gỡ recipe trước khi xóa." });
             }
 
             await _inventoryService.DeleteAsync(id);
@@ -689,7 +716,7 @@ namespace CoffeeShop.Controllers.Api
             var customers = string.IsNullOrWhiteSpace(search)
                 ? await _customerService.GetAllCustomersAsync()
                 : await _customerService.SearchCustomersAsync(search);
-            return Ok(customers.Select(MapCustomer));
+            return Ok(customers.OrderByDescending(c => c.TotalSpent).Select(MapCustomer));
         }
 
         [Authorize(Roles = "Admin,Cashier")]
@@ -717,7 +744,7 @@ namespace CoffeeShop.Controllers.Api
                     PhoneNumber = request.PhoneNumber.Trim(),
                     Email = request.Email?.Trim() ?? "",
                     Address = request.Address?.Trim() ?? "",
-                    MembershipLevel = string.IsNullOrWhiteSpace(request.MembershipLevel) ? "Bronze" : request.MembershipLevel.Trim()
+                    MembershipLevel = string.IsNullOrWhiteSpace(request.MembershipLevel) ? "Bronze" : request.MembershipLevel
                 });
                 return Ok(MapCustomer(created));
             }
@@ -731,21 +758,14 @@ namespace CoffeeShop.Controllers.Api
         [HttpPut("customers/{id:int}")]
         public async Task<IActionResult> UpdateCustomer(int id, [FromBody] CustomerWriteRequest request)
         {
-            if (string.IsNullOrWhiteSpace(request.Name) || string.IsNullOrWhiteSpace(request.PhoneNumber))
-            {
-                return BadRequest(new { message = "Tên và số điện thoại là bắt buộc." });
-            }
-
             var existing = await _customerService.GetCustomerByIdAsync(id);
             if (existing == null)
             {
                 return NotFound(new { message = "Không tìm thấy khách hàng." });
             }
-
-            var phoneOwner = await _customerService.GetCustomerByPhoneAsync(request.PhoneNumber.Trim());
-            if (phoneOwner != null && phoneOwner.Id != id)
+            if (string.IsNullOrWhiteSpace(request.Name) || string.IsNullOrWhiteSpace(request.PhoneNumber))
             {
-                return BadRequest(new { message = "Số điện thoại đã tồn tại." });
+                return BadRequest(new { message = "Tên và số điện thoại là bắt buộc." });
             }
 
             existing.Name = request.Name.Trim();
@@ -754,7 +774,7 @@ namespace CoffeeShop.Controllers.Api
             existing.Address = request.Address?.Trim() ?? "";
             if (!string.IsNullOrWhiteSpace(request.MembershipLevel))
             {
-                existing.MembershipLevel = request.MembershipLevel.Trim();
+                existing.MembershipLevel = request.MembershipLevel;
             }
             await _customerService.UpdateCustomerAsync(existing);
             return Ok(MapCustomer(existing));
@@ -764,6 +784,11 @@ namespace CoffeeShop.Controllers.Api
         [HttpDelete("customers/{id:int}")]
         public async Task<IActionResult> DeleteCustomer(int id)
         {
+            var existing = await _customerService.GetCustomerByIdAsync(id);
+            if (existing == null)
+            {
+                return NotFound(new { message = "Không tìm thấy khách hàng." });
+            }
             await _customerService.DeleteCustomerAsync(id);
             return Ok(new { ok = true });
         }
@@ -779,7 +804,11 @@ namespace CoffeeShop.Controllers.Api
                 var roles = await _userManager.GetRolesAsync(user);
                 result.Add(new { id = user.Id, fullName = user.FullName, email = user.Email, roles });
             }
-            return Ok(new { users = result, roles = _roleManager.Roles.Select(r => r.Name).ToList() });
+            return Ok(new
+            {
+                users = result,
+                roles = _roleManager.Roles.Select(r => r.Name).Where(n => n != null).OrderBy(n => n).ToList()
+            });
         }
 
         [Authorize(Roles = "Admin")]
@@ -792,9 +821,9 @@ namespace CoffeeShop.Controllers.Api
             }
 
             var role = string.IsNullOrWhiteSpace(request.Role) ? "Waiter" : request.Role.Trim();
-            if (!await _roleManager.RoleExistsAsync(role))
+            if (!AllowedRoles.Contains(role))
             {
-                return BadRequest(new { message = $"Vai trò {role} không hợp lệ." });
+                return BadRequest(new { message = "Vai trò không hợp lệ." });
             }
 
             var user = new ApplicationUser
@@ -810,7 +839,6 @@ namespace CoffeeShop.Controllers.Api
             {
                 return BadRequest(new { message = string.Join(" ", result.Errors.Select(e => e.Description)) });
             }
-
             await _userManager.AddToRoleAsync(user, role);
             return Ok(new { id = user.Id });
         }
@@ -826,23 +854,27 @@ namespace CoffeeShop.Controllers.Api
             }
 
             var role = (request.Status ?? "").Trim();
-            if (string.IsNullOrWhiteSpace(role) || !await _roleManager.RoleExistsAsync(role))
+            if (!AllowedRoles.Contains(role))
             {
                 return BadRequest(new { message = "Vai trò không hợp lệ." });
             }
+            if (!await _roleManager.RoleExistsAsync(role))
+            {
+                return BadRequest(new { message = $"Vai trò {role} chưa được khởi tạo." });
+            }
 
             var current = await _userManager.GetRolesAsync(user);
-            if (current.Any())
+            if (current.Count > 0)
             {
                 await _userManager.RemoveFromRolesAsync(user, current);
             }
             await _userManager.AddToRoleAsync(user, role);
             user.Role = role;
             await _userManager.UpdateAsync(user);
-            return Ok(new { ok = true, role });
+            return Ok(new { ok = true, roles = new[] { role } });
         }
 
-        [Authorize(Roles = "Cashier,Admin")]
+        [Authorize(Roles = "Cashier,Admin,Waiter")]
         [HttpGet("payments/ready")]
         public async Task<IActionResult> ReadyPayments()
         {
@@ -850,7 +882,7 @@ namespace CoffeeShop.Controllers.Api
             return Ok(orders.Select(MapOrder));
         }
 
-        [Authorize(Roles = "Cashier,Admin")]
+        [Authorize(Roles = "Cashier,Admin,Waiter")]
         [HttpPost("payments")]
         public async Task<IActionResult> Pay([FromBody] PayRequest request)
         {
@@ -876,7 +908,7 @@ namespace CoffeeShop.Controllers.Api
             }
         }
 
-        [Authorize(Roles = "Cashier,Admin")]
+        [Authorize(Roles = "Cashier,Admin,Waiter")]
         [HttpPost("payments/{id:int}/confirm")]
         public async Task<IActionResult> ConfirmPayment(int id, [FromBody] ConfirmRequest? request)
         {
@@ -928,7 +960,7 @@ namespace CoffeeShop.Controllers.Api
             }
         }
 
-        [Authorize(Roles = "Cashier,Admin")]
+        [Authorize(Roles = "Cashier,Admin,Waiter")]
         [HttpGet("payments/{id:int}")]
         public async Task<IActionResult> Payment(int id)
         {
@@ -946,7 +978,7 @@ namespace CoffeeShop.Controllers.Api
         public async Task<IActionResult> Sales([FromQuery] DateTime? startDate, [FromQuery] DateTime? endDate)
         {
             var start = startDate?.Date;
-            var end = endDate?.Date;
+            var endExclusive = endDate?.Date.AddDays(1);
 
             var orders = (await _unitOfWork.Orders.GetAllAsync()).AsEnumerable();
             var payments = (await _unitOfWork.Payments.GetAllAsync())
@@ -955,21 +987,22 @@ namespace CoffeeShop.Controllers.Api
 
             if (start.HasValue)
             {
-                orders = orders.Where(o => o.CreatedAt.Date >= start.Value);
-                payments = payments.Where(p => p.PaymentDate.Date >= start.Value);
+                orders = orders.Where(o => o.CreatedAt >= start.Value);
+                payments = payments.Where(p => p.PaymentDate >= start.Value);
             }
-            if (end.HasValue)
+            if (endExclusive.HasValue)
             {
-                orders = orders.Where(o => o.CreatedAt.Date <= end.Value);
-                payments = payments.Where(p => p.PaymentDate.Date <= end.Value);
+                orders = orders.Where(o => o.CreatedAt < endExclusive.Value);
+                payments = payments.Where(p => p.PaymentDate < endExclusive.Value);
             }
 
-            var orderList = orders.ToList();
+            var orderList = orders.Where(o => o.Status != "Cancelled").ToList();
             var paymentList = payments.ToList();
+
             return Ok(new
             {
                 startDate = start,
-                endDate = end,
+                endDate = endDate?.Date,
                 orderCount = orderList.Count,
                 revenue = orderList.Sum(o => o.Total),
                 paidAmount = paymentList.Sum(p => p.Amount),
@@ -979,41 +1012,17 @@ namespace CoffeeShop.Controllers.Api
                     .Select(g => new { date = g.Key, total = g.Sum(o => o.Total), count = g.Count() }),
                 paymentMethods = paymentList
                     .GroupBy(p => p.PaymentMethod)
-                    .Select(g => new { method = g.Key, total = g.Sum(p => p.Amount), count = g.Count() })
+                    .Select(g => new { method = g.Key, total = g.Sum(p => p.Amount), count = g.Count() }),
+                orderTotal = orderList.Sum(o => o.Total),
+                paymentTotal = paymentList.Sum(p => p.Amount)
             });
-        }
-
-        private async Task SaveRecipes(int menuItemId, List<RecipeWrite>? recipes)
-        {
-            if (recipes == null)
-            {
-                return;
-            }
-            foreach (var recipe in recipes.Where(r => r.InventoryItemId > 0 && r.QuantityRequired > 0))
-            {
-                var inventory = await _unitOfWork.InventoryItems.GetByIdAsync(recipe.InventoryItemId);
-                if (inventory == null)
-                {
-                    continue;
-                }
-
-                await _unitOfWork.MenuItemRecipes.AddAsync(new MenuItemRecipe
-                {
-                    MenuItemId = menuItemId,
-                    InventoryItemId = recipe.InventoryItemId,
-                    QuantityRequired = recipe.QuantityRequired
-                });
-            }
-            await _unitOfWork.SaveChangesAsync();
         }
 
         private async Task ReleaseTableIfIdleAsync(int tableId, int exceptOrderId)
         {
+            if (tableId <= 0) return;
             var table = await _unitOfWork.Tables.GetByIdAsync(tableId);
-            if (table == null)
-            {
-                return;
-            }
+            if (table == null) return;
 
             var others = await _unitOfWork.Orders.FindAsync(o =>
                 o.TableId == tableId &&
@@ -1026,6 +1035,25 @@ namespace CoffeeShop.Controllers.Api
                 _unitOfWork.Tables.Update(table);
                 await _unitOfWork.SaveChangesAsync();
             }
+        }
+
+        private async Task SaveRecipes(int menuItemId, List<RecipeWrite>? recipes)
+        {
+            if (recipes == null) return;
+
+            foreach (var recipe in recipes.Where(r => r.InventoryItemId > 0 && r.QuantityRequired > 0))
+            {
+                var inventory = await _unitOfWork.InventoryItems.GetByIdAsync(recipe.InventoryItemId);
+                if (inventory == null) continue;
+
+                await _unitOfWork.MenuItemRecipes.AddAsync(new MenuItemRecipe
+                {
+                    MenuItemId = menuItemId,
+                    InventoryItemId = recipe.InventoryItemId,
+                    QuantityRequired = recipe.QuantityRequired
+                });
+            }
+            await _unitOfWork.SaveChangesAsync();
         }
 
         private async Task<object> Profile(ApplicationUser user)
@@ -1050,17 +1078,6 @@ namespace CoffeeShop.Controllers.Api
                 "year" or "ytd" => "year",
                 "today" or "day" => "today",
                 _ => "today"
-            };
-        }
-
-        private static bool IsAllowedTransition(string current, string next)
-        {
-            return (current, next) switch
-            {
-                ("New", "Processing") => true,
-                ("Processing", "Ready") => true,
-                ("Ready", "Ready") => true,
-                _ => false
             };
         }
 
@@ -1263,6 +1280,7 @@ namespace CoffeeShop.Controllers.Api
         }
     }
 
+
     public class LoginRequest
     {
         public string? Email { get; set; }
@@ -1305,13 +1323,6 @@ namespace CoffeeShop.Controllers.Api
         public decimal QuantityRequired { get; set; }
     }
 
-    public class StockRequest
-    {
-        public decimal Quantity { get; set; }
-        public string Action { get; set; } = "add";
-        public DateTime ExpirationDate { get; set; }
-    }
-
     public class InventoryWriteRequest
     {
         public string Name { get; set; } = "";
@@ -1321,13 +1332,11 @@ namespace CoffeeShop.Controllers.Api
         public DateTime ExpirationDate { get; set; }
     }
 
-    public class CustomerWriteRequest
+    public class StockRequest
     {
-        public string Name { get; set; } = "";
-        public string PhoneNumber { get; set; } = "";
-        public string? Email { get; set; }
-        public string? Address { get; set; }
-        public string? MembershipLevel { get; set; }
+        public decimal Quantity { get; set; }
+        public string Action { get; set; } = "add";
+        public DateTime? ExpirationDate { get; set; }
     }
 
     public class CreateUserRequest
@@ -1336,6 +1345,15 @@ namespace CoffeeShop.Controllers.Api
         public string? Email { get; set; }
         public string? Password { get; set; }
         public string? Role { get; set; }
+    }
+
+    public class CustomerWriteRequest
+    {
+        public string? Name { get; set; }
+        public string? PhoneNumber { get; set; }
+        public string? Email { get; set; }
+        public string? Address { get; set; }
+        public string? MembershipLevel { get; set; }
     }
 
     public class PayRequest
@@ -1359,3 +1377,4 @@ namespace CoffeeShop.Controllers.Api
         public string? Result { get; set; }
     }
 }
+

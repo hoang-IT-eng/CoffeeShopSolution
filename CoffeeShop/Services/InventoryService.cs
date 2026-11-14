@@ -177,7 +177,7 @@ namespace CoffeeShop.Services
             return items;
         }
 
-        public async Task<InventoryItem> GetByIdAsync(int id)
+        public async Task<InventoryItem?> GetByIdAsync(int id)
         {
             return await _unitOfWork.InventoryItems.GetByIdAsync(id);
         }

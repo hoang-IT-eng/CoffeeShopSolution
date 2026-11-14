@@ -1,4 +1,5 @@
-﻿using System.Text.Json.Serialization;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using CoffeeShop.Data;
 using CoffeeShop.Data.UnitOfWork;
 using CoffeeShop.Models;
@@ -11,7 +12,9 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
     {
-        options.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
+        options.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
+        options.JsonSerializerOptions.DictionaryKeyPolicy = JsonNamingPolicy.CamelCase;
+        options.JsonSerializerOptions.PropertyNameCaseInsensitive = true;
         options.JsonSerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
     });
 
@@ -36,7 +39,7 @@ builder.Services.ConfigureApplicationCookie(options =>
 {
     options.Cookie.Name = "AnRoastery.Auth";
     options.Cookie.HttpOnly = true;
-    options.ExpireTimeSpan = TimeSpan.FromDays(14);
+    options.ExpireTimeSpan = TimeSpan.FromHours(12);
     options.SlidingExpiration = true;
     options.LoginPath = "/api/auth/login";
     options.LogoutPath = "/api/auth/logout";
@@ -44,40 +47,28 @@ builder.Services.ConfigureApplicationCookie(options =>
 
     if (crossOriginCookies)
     {
-        // Separate React origin (e.g. VITE_API_URL) needs SameSite=None + Secure.
+        // Separate React origin (e.g. Vite on another host) needs credentialed CORS cookies.
         options.Cookie.SameSite = SameSiteMode.None;
         options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
     }
     else
     {
-        // Vite same-origin proxy (localhost:5173 → /api) works with Lax over HTTP.
+        // Local Vite proxy / MobileSim over http works with Lax.
         options.Cookie.SameSite = SameSiteMode.Lax;
         options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
     }
 
     options.Events.OnRedirectToLogin = context =>
     {
-        if (context.Request.Path.StartsWithSegments("/api"))
-        {
-            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-            context.Response.ContentType = "application/json";
-            return context.Response.WriteAsync("{\"message\":\"Chưa đăng nhập.\"}");
-        }
-
-        context.Response.Redirect(context.RedirectUri);
-        return Task.CompletedTask;
+        context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+        context.Response.ContentType = "application/json";
+        return context.Response.WriteAsync("{\"message\":\"Chưa đăng nhập.\"}");
     };
     options.Events.OnRedirectToAccessDenied = context =>
     {
-        if (context.Request.Path.StartsWithSegments("/api"))
-        {
-            context.Response.StatusCode = StatusCodes.Status403Forbidden;
-            context.Response.ContentType = "application/json";
-            return context.Response.WriteAsync("{\"message\":\"Bạn không có quyền thực hiện thao tác này.\"}");
-        }
-
-        context.Response.Redirect(context.RedirectUri);
-        return Task.CompletedTask;
+        context.Response.StatusCode = StatusCodes.Status403Forbidden;
+        context.Response.ContentType = "application/json";
+        return context.Response.WriteAsync("{\"message\":\"Không có quyền thực hiện thao tác này.\"}");
     };
 });
 
@@ -116,9 +107,10 @@ else
         });
     });
     app.UseHsts();
+    app.UseHttpsRedirection();
 }
 
-app.UseHttpsRedirection();
+app.UseStaticFiles();
 app.UseRouting();
 app.UseCors("Frontend");
 app.UseAuthentication();
@@ -130,47 +122,13 @@ using (var scope = app.Services.CreateScope())
     var services = scope.ServiceProvider;
     try
     {
-        var context = services.GetRequiredService<ApplicationDbContext>();
-        await context.Database.MigrateAsync();
-
-        var roleManager = services.GetRequiredService<RoleManager<IdentityRole>>();
-        var userManager = services.GetRequiredService<UserManager<ApplicationUser>>();
-
-        foreach (var role in new[] { "Admin", "Cashier", "Waiter" })
-        {
-            if (!await roleManager.RoleExistsAsync(role))
-            {
-                await roleManager.CreateAsync(new IdentityRole(role));
-            }
-        }
-
-        var demoAdmin = await userManager.FindByEmailAsync("newadmin@coffee.com");
-        if (demoAdmin == null)
-        {
-            demoAdmin = new ApplicationUser
-            {
-                UserName = "newadmin@coffee.com",
-                Email = "newadmin@coffee.com",
-                FullName = "Admin An Roastery",
-                Role = "Admin",
-                EmailConfirmed = true
-            };
-            var created = await userManager.CreateAsync(demoAdmin, "NewAdmin@123");
-            if (created.Succeeded)
-            {
-                await userManager.AddToRoleAsync(demoAdmin, "Admin");
-            }
-        }
-        else if (!await userManager.IsInRoleAsync(demoAdmin, "Admin"))
-        {
-            await userManager.AddToRoleAsync(demoAdmin, "Admin");
-        }
-
+        var db = services.GetRequiredService<ApplicationDbContext>();
+        await db.Database.MigrateAsync();
         await SeedData.Initialize(services);
     }
     catch (Exception ex)
     {
-        var logger = services.GetRequiredService<ILogger<Program>>();
+        var logger = services.GetRequiredService<ILoggerFactory>().CreateLogger("Startup");
         logger.LogError(ex, "An error occurred migrating or seeding the DB.");
     }
 }
