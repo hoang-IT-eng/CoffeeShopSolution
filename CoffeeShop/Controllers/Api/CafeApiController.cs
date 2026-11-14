@@ -1,10 +1,12 @@
 using CoffeeShop.Data.UnitOfWork;
+using CoffeeShop.Hubs;
 using CoffeeShop.Models;
 using CoffeeShop.Services;
 using CoffeeShop.ViewModels;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
 
 namespace CoffeeShop.Controllers.Api
 {
@@ -34,6 +36,8 @@ namespace CoffeeShop.Controllers.Api
         private readonly IInventoryService _inventoryService;
         private readonly IPaymentService _paymentService;
         private readonly ICustomerService _customerService;
+        private readonly IShiftService _shiftService;
+        private readonly IHubContext<KitchenHub> _kitchenHub;
 
         public CafeApiController(
             SignInManager<ApplicationUser> signInManager,
@@ -43,7 +47,9 @@ namespace CoffeeShop.Controllers.Api
             IOrderService orderService,
             IInventoryService inventoryService,
             IPaymentService paymentService,
-            ICustomerService customerService)
+            ICustomerService customerService,
+            IShiftService shiftService,
+            IHubContext<KitchenHub> kitchenHub)
         {
             _signInManager = signInManager;
             _userManager = userManager;
@@ -53,6 +59,8 @@ namespace CoffeeShop.Controllers.Api
             _inventoryService = inventoryService;
             _paymentService = paymentService;
             _customerService = customerService;
+            _shiftService = shiftService;
+            _kitchenHub = kitchenHub;
         }
 
         [AllowAnonymous]
@@ -370,6 +378,12 @@ namespace CoffeeShop.Controllers.Api
                 await _unitOfWork.SaveChangesAsync();
             }
 
+            var created = await _orderService.GetOrderWithDetailsAsync(order.Id);
+            if (created != null)
+            {
+                await BroadcastKitchenAsync("orderCreated", created);
+            }
+
             return Ok(new { id = order.Id, message = $"Đã tạo đơn hàng #{order.Id}." });
         }
 
@@ -405,6 +419,12 @@ namespace CoffeeShop.Controllers.Api
             }
 
             await _orderService.UpdateStatusAsync(id, next);
+            var updated = await _orderService.GetOrderWithDetailsAsync(id);
+            if (updated != null)
+            {
+                await BroadcastKitchenAsync("orderStatusChanged", updated);
+            }
+
             return Ok(new { message = $"Đơn #{id} → {next}." });
         }
 
@@ -430,17 +450,41 @@ namespace CoffeeShop.Controllers.Api
 
             await _orderService.UpdateStatusAsync(id, "Cancelled");
             await ReleaseTableIfIdleAsync(order.TableId, id);
+            var cancelled = await _orderService.GetOrderWithDetailsAsync(id);
+            if (cancelled != null)
+            {
+                await BroadcastKitchenAsync("orderCancelled", cancelled);
+            }
+
             return Ok(new { message = $"Đơn #{id} đã được hủy." });
         }
 
         [HttpGet("tables")]
         public async Task<IActionResult> Tables()
         {
-            var tables = await _unitOfWork.Tables.GetAllAsync();
-            return Ok(tables
+            var tables = (await _unitOfWork.Tables.GetAllAsync())
                 .OrderBy(t => t.Area)
                 .ThenBy(t => t.Name)
-                .Select(t => new { id = t.Id, name = t.Name, area = t.Area, status = t.Status }));
+                .ToList();
+            var openOrders = (await _orderService.GetPendingOrdersAsync()).ToList();
+
+            return Ok(tables.Select(t =>
+            {
+                var open = openOrders
+                    .Where(o => o.TableId == t.Id)
+                    .OrderByDescending(o => o.CreatedAt)
+                    .FirstOrDefault();
+                return new
+                {
+                    id = t.Id,
+                    name = t.Name,
+                    area = t.Area,
+                    status = t.Status,
+                    openOrderId = open?.Id,
+                    openOrderStatus = open?.Status,
+                    openOrderTotal = open?.Total
+                };
+            }));
         }
 
         [Authorize(Roles = "Waiter,Admin,Cashier")]
@@ -461,8 +505,7 @@ namespace CoffeeShop.Controllers.Api
             if (request.Status == "Empty")
             {
                 var open = await _unitOfWork.Orders.FindAsync(o =>
-                    o.TableId == id &&
-                    (o.Status == "New" || o.Status == "Processing" || o.Status == "Ready" || o.Status == "PendingMobilePayment"));
+                    o.TableId == id && OrderService.IsOpenStatus(o.Status));
                 if (open.Any())
                 {
                     return BadRequest(new { message = "Bàn còn đơn đang mở — không thể đặt Trống." });
@@ -858,6 +901,56 @@ namespace CoffeeShop.Controllers.Api
         }
 
         [Authorize(Roles = "Cashier,Admin,Waiter")]
+        [HttpGet("shift")]
+        public async Task<IActionResult> GetShift()
+        {
+            var shift = await _shiftService.GetCurrentAsync();
+            if (shift == null)
+            {
+                return Ok(new { open = false, shift = (object?)null });
+            }
+
+            return Ok(new { open = true, shift = await _shiftService.MapAsync(shift) });
+        }
+
+        [Authorize(Roles = "Cashier,Admin")]
+        [HttpPost("shift/open")]
+        public async Task<IActionResult> OpenShift([FromBody] ShiftOpenRequest? request)
+        {
+            try
+            {
+                var user = await _userManager.GetUserAsync(User);
+                var shift = await _shiftService.OpenAsync(
+                    user?.Email ?? user?.UserName ?? "staff",
+                    request?.OpeningFloat ?? 0,
+                    request?.Notes);
+                return Ok(await _shiftService.MapAsync(shift));
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+        }
+
+        [Authorize(Roles = "Cashier,Admin")]
+        [HttpPost("shift/close")]
+        public async Task<IActionResult> CloseShift([FromBody] ShiftCloseRequest? request)
+        {
+            try
+            {
+                var user = await _userManager.GetUserAsync(User);
+                var shift = await _shiftService.CloseAsync(
+                    user?.Email ?? user?.UserName ?? "staff",
+                    request?.Notes);
+                return Ok(await _shiftService.MapAsync(shift));
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+        }
+
+        [Authorize(Roles = "Cashier,Admin,Waiter")]
         [HttpGet("payments/ready")]
         public async Task<IActionResult> ReadyPayments()
         {
@@ -871,16 +964,19 @@ namespace CoffeeShop.Controllers.Api
         {
             try
             {
-                var method = (request.PaymentMethod ?? "Cash").Trim();
+                var method = NormalizePaymentMethod(request.PaymentMethod);
                 Payment payment = method switch
                 {
-                    "Cash" => await _paymentService.ProcessCashPaymentAsync(
+                    PaymentService.MethodCash => await _paymentService.ProcessCashPaymentAsync(
                         request.OrderId, request.CustomerInfo, request.CustomerPhone, request.CustomerId),
-                    "Mobile" => await _paymentService.InitiateMobilePaymentAsync(
+                    PaymentService.MethodCard => await _paymentService.ProcessCardPaymentAsync(
                         request.OrderId, request.CustomerInfo, request.CustomerPhone, request.CustomerId),
-                    _ => throw new InvalidOperationException("Phương thức thanh toán không hợp lệ (Cash|Mobile).")
+                    PaymentService.MethodMobileSim => await _paymentService.InitiateSimulatedPaymentAsync(
+                        request.OrderId, request.CustomerInfo, request.CustomerPhone, request.CustomerId),
+                    _ => throw new InvalidOperationException("Phương thức thanh toán không hợp lệ. Dùng Cash, Card hoặc MobileSim.")
                 };
-                return Ok(new { id = payment.Id, status = payment.Status, method = payment.PaymentMethod, orderId = payment.OrderId });
+
+                return Ok(MapPaymentResult(payment, includeCheckout: method == PaymentService.MethodMobileSim));
             }
             catch (Exception ex)
             {
@@ -890,12 +986,49 @@ namespace CoffeeShop.Controllers.Api
 
         [Authorize(Roles = "Cashier,Admin,Waiter")]
         [HttpPost("payments/{id:int}/confirm")]
-        public async Task<IActionResult> ConfirmPayment(int id, [FromBody] ConfirmRequest request)
+        public async Task<IActionResult> ConfirmPayment(int id, [FromBody] ConfirmRequest? request)
         {
             try
             {
-                var payment = await _paymentService.CompleteMobilePaymentAsync(id, request.Success);
-                return Ok(new { id = payment.Id, status = payment.Status });
+                var success = request?.Success ?? true;
+                var payment = await _paymentService.CompleteSimulatedPaymentAsync(id, success, "api-confirm");
+                return Ok(MapPaymentResult(payment, includeCheckout: false));
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+        }
+
+        /// <summary>Webhook-like callback for MobileSim (also used by /pay/sim page via service).</summary>
+        [AllowAnonymous]
+        [HttpPost("payments/{id:int}/simulate-callback")]
+        public async Task<IActionResult> SimulateCallback(int id, [FromBody] SimulateCallbackRequest? request)
+        {
+            try
+            {
+                bool success;
+                if (request?.Success != null)
+                {
+                    success = request.Success.Value;
+                }
+                else if (!string.IsNullOrWhiteSpace(request?.Result))
+                {
+                    if (string.Equals(request.Result, "Paid", StringComparison.OrdinalIgnoreCase))
+                        success = true;
+                    else if (string.Equals(request.Result, "Failed", StringComparison.OrdinalIgnoreCase))
+                        success = false;
+                    else
+                        return BadRequest(new { message = "result phải là Paid hoặc Failed." });
+                }
+                else
+                {
+                    // Empty body → treat as successful webhook.
+                    success = true;
+                }
+
+                var payment = await _paymentService.CompleteSimulatedPaymentAsync(id, success, "simulate-callback");
+                return Ok(MapPaymentResult(payment, includeCheckout: false));
             }
             catch (Exception ex)
             {
@@ -912,26 +1045,8 @@ namespace CoffeeShop.Controllers.Api
             {
                 return NotFound(new { message = "Không tìm thấy thanh toán." });
             }
-            return Ok(new
-            {
-                id = payment.Id,
-                orderId = payment.OrderId,
-                amount = payment.Amount,
-                paymentMethod = payment.PaymentMethod,
-                paymentDate = payment.PaymentDate,
-                customerInfo = payment.CustomerInfo,
-                status = payment.Status,
-                pointsEarned = payment.PointsEarned,
-                customerName = payment.Customer?.Name,
-                tableName = payment.Order?.Table?.Name,
-                orderTotal = payment.Order?.Total ?? payment.Amount,
-                details = payment.Order?.OrderDetails?.Select(d => new
-                {
-                    name = d.MenuItem?.Name,
-                    quantity = d.Quantity,
-                    price = d.Price
-                })
-            });
+
+            return Ok(MapPaymentReceipt(payment));
         }
 
         [Authorize(Roles = "Admin")]
@@ -942,7 +1057,9 @@ namespace CoffeeShop.Controllers.Api
             var endExclusive = endDate?.Date.AddDays(1);
 
             var orders = (await _unitOfWork.Orders.GetAllAsync()).AsEnumerable();
-            var payments = (await _unitOfWork.Payments.GetAllAsync()).AsEnumerable();
+            var payments = (await _unitOfWork.Payments.GetAllAsync())
+                .Where(p => IPaymentService.IsPaid(p.Status))
+                .AsEnumerable();
 
             if (start.HasValue)
             {
@@ -956,10 +1073,15 @@ namespace CoffeeShop.Controllers.Api
             }
 
             var orderList = orders.Where(o => o.Status != "Cancelled").ToList();
-            var paymentList = payments.Where(p => p.Status == "Completed").ToList();
+            var paymentList = payments.ToList();
 
             return Ok(new
             {
+                startDate = start,
+                endDate = endDate?.Date,
+                orderCount = orderList.Count,
+                revenue = orderList.Sum(o => o.Total),
+                paidAmount = paymentList.Sum(p => p.Amount),
                 dailySales = orderList
                     .GroupBy(o => o.CreatedAt.Date)
                     .OrderBy(g => g.Key)
@@ -981,7 +1103,7 @@ namespace CoffeeShop.Controllers.Api
             var others = await _unitOfWork.Orders.FindAsync(o =>
                 o.TableId == tableId &&
                 o.Id != exceptOrderId &&
-                (o.Status == "New" || o.Status == "Processing" || o.Status == "Ready" || o.Status == "PendingMobilePayment"));
+                OrderService.IsOpenStatus(o.Status));
 
             if (!others.Any() && table.Status != "Empty")
             {
@@ -1030,6 +1152,7 @@ namespace CoffeeShop.Controllers.Api
                 "7d" or "7" or "week" => "week",
                 "30d" or "30" or "month" => "month",
                 "year" or "ytd" => "year",
+                "today" or "day" => "today",
                 _ => "today"
             };
         }
@@ -1055,26 +1178,36 @@ namespace CoffeeShop.Controllers.Api
             };
         }
 
-        private static object MapOrder(Order order) => new
+        private static object MapOrder(Order order)
         {
-            id = order.Id,
-            tableId = order.TableId,
-            tableName = order.Table?.Name,
-            createdAt = order.CreatedAt,
-            status = order.Status,
-            total = order.Total,
-            customerName = order.CustomerName,
-            details = order.OrderDetails?.Select(d => new
+            var details = order.OrderDetails?.ToList() ?? new List<OrderDetail>();
+            var elapsed = Math.Max(0, (int)(DateTime.Now - order.CreatedAt).TotalMinutes);
+            return new
             {
-                id = d.Id,
-                menuItemId = d.MenuItemId,
-                name = d.MenuItem?.Name,
-                quantity = d.Quantity,
-                price = d.Price,
-                imageUrl = d.MenuItem?.ImageUrl,
-                category = d.MenuItem?.Category
-            }) ?? Enumerable.Empty<object>()
-        };
+                id = order.Id,
+                tableId = order.TableId,
+                tableName = order.Table?.Name,
+                tableArea = order.Table?.Area,
+                createdAt = order.CreatedAt,
+                status = order.Status,
+                total = order.Total,
+                customerName = order.CustomerName,
+                itemCount = details.Sum(d => d.Quantity),
+                elapsedMinutes = elapsed,
+                isKitchen = order.Status is "New" or "Processing",
+                details = details.Select(d => new
+                {
+                    id = d.Id,
+                    menuItemId = d.MenuItemId,
+                    name = d.MenuItem?.Name,
+                    quantity = d.Quantity,
+                    price = d.Price,
+                    lineTotal = d.Price * d.Quantity,
+                    imageUrl = d.MenuItem?.ImageUrl,
+                    category = d.MenuItem?.Category
+                })
+            };
+        }
 
         private static object MapMenu(MenuItem item) => new
         {
@@ -1110,7 +1243,124 @@ namespace CoffeeShop.Controllers.Api
             totalSpent = customer.TotalSpent,
             totalOrders = customer.TotalOrders
         };
+
+        private object MapPaymentResult(Payment payment, bool includeCheckout)
+        {
+            var status = IPaymentService.CanonicalStatus(payment.Status);
+            var checkoutUrl = BuildSimCheckoutUrl(payment.Id);
+            var payload = new Dictionary<string, object?>
+            {
+                ["id"] = payment.Id,
+                ["orderId"] = payment.OrderId,
+                ["amount"] = payment.Amount,
+                ["status"] = status,
+                ["paymentMethod"] = payment.PaymentMethod,
+                ["method"] = payment.PaymentMethod,
+                ["transactionId"] = payment.TransactionId,
+                ["pointsEarned"] = payment.PointsEarned,
+                // FE ReceiptPage still checks Mobile + !== Completed — expose aliases.
+                ["legacyStatus"] = status switch
+                {
+                    "Paid" => "Completed",
+                    "Pending" => "PendingMobile",
+                    _ => status
+                }
+            };
+
+            if (includeCheckout || status == "Pending")
+            {
+                payload["checkoutUrl"] = checkoutUrl;
+                payload["qrPayload"] = $"anroastery://pay/sim/{payment.Id}?tx={payment.TransactionId}";
+                payload["pollUrl"] = $"/api/payments/{payment.Id}";
+            }
+
+            return payload;
+        }
+
+        private object MapPaymentReceipt(Payment payment)
+        {
+            var status = IPaymentService.CanonicalStatus(payment.Status);
+            var isPaid = status == "Paid";
+            var checkoutUrl = BuildSimCheckoutUrl(payment.Id);
+
+            return new
+            {
+                id = payment.Id,
+                orderId = payment.OrderId,
+                amount = payment.Amount,
+                // Pending MobileSim → "Mobile" so React ReceiptPage still shows confirm buttons.
+                // After Paid/Failed → "MobileSim" so those buttons hide.
+                paymentMethod = payment.PaymentMethod == PaymentService.MethodMobileSim && status == "Pending"
+                    ? "Mobile"
+                    : payment.PaymentMethod,
+                simMethod = payment.PaymentMethod,
+                paymentDate = payment.PaymentDate,
+                customerInfo = payment.CustomerInfo,
+                status,
+                // FE Receipt historically checked !== "Completed"
+                legacyStatus = status switch
+                {
+                    "Paid" => "Completed",
+                    "Pending" => "PendingMobile",
+                    _ => status
+                },
+                isPaid,
+                isPending = status == "Pending",
+                isFailed = status == "Failed",
+                transactionId = payment.TransactionId,
+                notes = payment.Notes,
+                pointsEarned = payment.PointsEarned,
+                customerName = payment.Customer?.Name,
+                tableName = payment.Order?.Table?.Name,
+                orderStatus = payment.Order?.Status,
+                orderTotal = payment.Order?.Total ?? payment.Amount,
+                checkoutUrl = status == "Pending" ? checkoutUrl : null,
+                qrPayload = status == "Pending" ? $"anroastery://pay/sim/{payment.Id}?tx={payment.TransactionId}" : null,
+                receipt = isPaid
+                    ? new
+                    {
+                        title = "An Roastery",
+                        subtitle = "Phiếu thanh toán",
+                        paidAt = payment.PaymentDate,
+                        method = payment.PaymentMethod,
+                        amount = payment.Amount,
+                        transactionId = payment.TransactionId
+                    }
+                    : null,
+                details = payment.Order?.OrderDetails?.Select(d => new
+                {
+                    name = d.MenuItem?.Name,
+                    quantity = d.Quantity,
+                    price = d.Price,
+                    lineTotal = d.Price * d.Quantity
+                })
+            };
+        }
+
+        private string BuildSimCheckoutUrl(int paymentId)
+        {
+            var baseUrl = $"{Request.Scheme}://{Request.Host}";
+            return $"{baseUrl}/pay/sim/{paymentId}";
+        }
+
+        private static string NormalizePaymentMethod(string? method)
+        {
+            var key = (method ?? "").Trim();
+            return key.ToLowerInvariant() switch
+            {
+                "cash" => PaymentService.MethodCash,
+                "card" => PaymentService.MethodCard,
+                "mobilesim" or "mobile" or "momo" or "vietqr" or "qr" => PaymentService.MethodMobileSim,
+                _ => key
+            };
+        }
+
+        private async Task BroadcastKitchenAsync(string eventName, Order order)
+        {
+            await _kitchenHub.Clients.Group(KitchenHub.GroupName).SendAsync(eventName, MapOrder(order));
+        }
     }
+
 
     public class LoginRequest
     {
@@ -1198,6 +1448,25 @@ namespace CoffeeShop.Controllers.Api
 
     public class ConfirmRequest
     {
-        public bool Success { get; set; }
+        public bool Success { get; set; } = true;
+    }
+
+    public class SimulateCallbackRequest
+    {
+        public bool? Success { get; set; }
+        /// <summary>Paid or Failed</summary>
+        public string? Result { get; set; }
+    }
+
+    public class ShiftOpenRequest
+    {
+        public decimal OpeningFloat { get; set; }
+        public string? Notes { get; set; }
+    }
+
+    public class ShiftCloseRequest
+    {
+        public string? Notes { get; set; }
     }
 }
+

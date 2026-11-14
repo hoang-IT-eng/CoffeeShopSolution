@@ -1,5 +1,4 @@
-﻿// Data/ApplicationDbContext.cs
-using CoffeeShop.Models;
+﻿using CoffeeShop.Models;
 using CoffeeShop.ViewModels;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
@@ -22,11 +21,23 @@ namespace CoffeeShop.Data
         public DbSet<Payment> Payments { get; set; }
         public DbSet<CustomerPromotion> CustomerPromotions { get; set; }
         public DbSet<Customer> Customers { get; set; }
+        public DbSet<CashShift> CashShifts { get; set; }
         // public DbSet<ApplicationUser> ApplicationUsers { get; set; } // If you need to query ApplicationUser directly
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
+
+            modelBuilder.Entity<CashShift>()
+                .Property(s => s.OpeningFloat).HasPrecision(18, 2);
+            modelBuilder.Entity<CashShift>()
+                .Property(s => s.CashTotal).HasPrecision(18, 2);
+            modelBuilder.Entity<CashShift>()
+                .Property(s => s.CardTotal).HasPrecision(18, 2);
+            modelBuilder.Entity<CashShift>()
+                .Property(s => s.MobileSimTotal).HasPrecision(18, 2);
+            modelBuilder.Entity<CashShift>()
+                .Property(s => s.GrandTotal).HasPrecision(18, 2);
 
             // Cấu hình độ chính xác cho decimal (Your existing configurations - KEEP THESE)
             modelBuilder.Entity<MenuItem>()

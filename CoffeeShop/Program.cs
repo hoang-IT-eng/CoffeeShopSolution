@@ -1,6 +1,8 @@
-﻿using System.Text.Json;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using CoffeeShop.Data;
 using CoffeeShop.Data.UnitOfWork;
+using CoffeeShop.Hubs;
 using CoffeeShop.Models;
 using CoffeeShop.Services;
 using Microsoft.AspNetCore.Identity;
@@ -14,6 +16,7 @@ builder.Services.AddControllers()
         options.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
         options.JsonSerializerOptions.DictionaryKeyPolicy = JsonNamingPolicy.CamelCase;
         options.JsonSerializerOptions.PropertyNameCaseInsensitive = true;
+        options.JsonSerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
     });
 
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
@@ -51,7 +54,7 @@ builder.Services.ConfigureApplicationCookie(options =>
     }
     else
     {
-        // Local Vite proxy (same browser origin) works with Lax over http.
+        // Local Vite proxy / MobileSim over http works with Lax.
         options.Cookie.SameSite = SameSiteMode.Lax;
         options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
     }
@@ -86,6 +89,8 @@ builder.Services.AddScoped<IOrderService, OrderService>();
 builder.Services.AddScoped<IInventoryService, InventoryService>();
 builder.Services.AddScoped<IPaymentService, PaymentService>();
 builder.Services.AddScoped<ICustomerService, CustomerService>();
+builder.Services.AddScoped<IShiftService, ShiftService>();
+builder.Services.AddSignalR();
 
 var app = builder.Build();
 
@@ -114,6 +119,7 @@ app.UseCors("Frontend");
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
+app.MapHub<KitchenHub>("/hubs/kitchen");
 
 using (var scope = app.Services.CreateScope())
 {

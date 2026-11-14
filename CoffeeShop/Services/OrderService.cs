@@ -1,11 +1,15 @@
-﻿using CoffeeShop.Data.UnitOfWork;
+using CoffeeShop.Data.UnitOfWork;
 using CoffeeShop.Models;
 
 namespace CoffeeShop.Services
 {
     public class OrderService : IOrderService
     {
-        private static readonly string[] OpenStatuses = { "New", "Processing", "Ready", "PendingMobilePayment" };
+        private static readonly HashSet<string> OpenStatuses = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "New", "Processing", "Ready", "PendingMobilePayment"
+        };
+
         private readonly IUnitOfWork _unitOfWork;
 
         public OrderService(IUnitOfWork unitOfWork)
@@ -27,14 +31,17 @@ namespace CoffeeShop.Services
                 {
                     throw new ArgumentException($"Chi tiết đơn hàng không hợp lệ cho MenuItemId: {detail.MenuItemId}");
                 }
+
                 var menuItem = await _unitOfWork.MenuItems.GetByIdAsync(detail.MenuItemId);
                 if (menuItem == null)
                 {
                     throw new InvalidOperationException($"Không tìm thấy MenuItem với ID: {detail.MenuItemId}");
                 }
+
                 total += detail.Quantity * menuItem.Price;
                 detail.Price = menuItem.Price;
             }
+
             order.Total = total;
             order.CreatedAt = DateTime.Now;
             order.Status = "New";
@@ -55,8 +62,10 @@ namespace CoffeeShop.Services
         {
             // Floor / shift: every open ticket including Ready waiting for payment.
             var orders = (await _unitOfWork.Orders.FindWithIncludeAsync(
-                o => o.Status == "New" || o.Status == "Processing" || o.Status == "Ready" || o.Status == "PendingMobilePayment",
-                o => o.Table)).OrderByDescending(o => o.CreatedAt).ToList();
+                o => OpenStatuses.Contains(o.Status),
+                o => o.Table))
+                .OrderByDescending(o => o.CreatedAt)
+                .ToList();
 
             await AttachDetailsAsync(orders);
             return orders;
@@ -64,10 +73,12 @@ namespace CoffeeShop.Services
 
         public async Task<IEnumerable<Order>> GetReadyOrdersAsync()
         {
-            // Cashier queue: ready to collect payment (or unfinished mobile).
+            // Cashier queue: ready to collect payment (or unfinished mobile sim).
             var orders = (await _unitOfWork.Orders.FindWithIncludeAsync(
                 o => o.Status == "Ready" || o.Status == "PendingMobilePayment",
-                o => o.Table)).OrderBy(o => o.CreatedAt).ToList();
+                o => o.Table))
+                .OrderBy(o => o.CreatedAt)
+                .ToList();
 
             await AttachDetailsAsync(orders);
             return orders;
@@ -108,7 +119,10 @@ namespace CoffeeShop.Services
 
         private async Task AttachDetailsAsync(List<Order> orders)
         {
-            if (orders.Count == 0) return;
+            if (orders.Count == 0)
+            {
+                return;
+            }
 
             var ids = orders.Select(o => o.Id).ToList();
             var details = (await _unitOfWork.OrderDetails.FindAsync(d => ids.Contains(d.OrderId))).ToList();
@@ -123,7 +137,9 @@ namespace CoffeeShop.Services
                 foreach (var detail in order.OrderDetails)
                 {
                     if (menus.TryGetValue(detail.MenuItemId, out var item))
+                    {
                         detail.MenuItem = item;
+                    }
                 }
             }
         }
