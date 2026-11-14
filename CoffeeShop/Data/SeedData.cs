@@ -21,6 +21,8 @@ namespace CoffeeShop.Data
                     await roleManager.CreateAsync(new IdentityRole(roleName));
             }
 
+            // Stable demo accounts used by the React admin login screen.
+            await EnsureUser(userManager, "newadmin@coffee.com", "NewAdmin@123", "Admin An Roastery", "Admin");
             await EnsureUser(userManager, "admin@coffee.com", "Admin@123", "Quản trị viên", "Admin");
             await EnsureUser(userManager, "waiter@coffee.com", "Waiter@123", "Lê Quốc Bảo", "Waiter");
             await EnsureUser(userManager, "cashier@coffee.com", "Cashier@123", "Nguyễn Thu Hà", "Cashier");
@@ -49,15 +51,15 @@ namespace CoffeeShop.Data
             }
 
             var menu = new Dictionary<string, MenuItem>();
-            foreach (var spec in new (string Name, decimal Price, string Category)[]
+            foreach (var spec in new (string Name, decimal Price, string Category, string Description)[]
             {
-                ("Cà phê Muối", 45000, "Cà phê"),
-                ("Bạc xỉu", 42000, "Cà phê"),
-                ("Espresso", 35000, "Cà phê"),
-                ("Cappuccino", 45000, "Cà phê"),
-                ("Trà đào cam sả", 52000, "Trà"),
-                ("Cold brew", 49000, "Cà phê"),
-                ("Croissant bơ", 38000, "Bánh")
+                ("Cà phê Muối", 45000, "Cà phê", "Espresso, sữa đặc, muối biển"),
+                ("Bạc xỉu", 42000, "Cà phê", "Sữa nhiều, cà phê vừa"),
+                ("Espresso", 35000, "Cà phê", "Đậm, ngắn"),
+                ("Cappuccino", 45000, "Cà phê", "Espresso + sữa nóng"),
+                ("Trà đào cam sả", 52000, "Trà", "Đào ngâm, cam, sả"),
+                ("Cold brew", 49000, "Cà phê", "Ủ lạnh 12 giờ"),
+                ("Croissant bơ", 38000, "Bánh", "Bơ Pháp, nướng trong ngày")
             })
             {
                 var item = await context.MenuItems.FirstOrDefaultAsync(m => m.Name == spec.Name);
@@ -68,7 +70,7 @@ namespace CoffeeShop.Data
                         Name = spec.Name,
                         Price = spec.Price,
                         Category = spec.Category,
-                        Description = spec.Category,
+                        Description = spec.Description,
                         ImageUrl = "",
                         IsAvailable = true
                     };
@@ -84,7 +86,8 @@ namespace CoffeeShop.Data
                 ("Sữa tươi không đường", 2, 6, "lít", 3),
                 ("Đào ngâm", 1.2m, 2, "kg", -2),
                 ("Cam tươi", 8, 3, "kg", 20),
-                ("Bơ lạt", 0.4m, 1, "kg", 5)
+                ("Bơ lạt", 0.4m, 1, "kg", 5),
+                ("Đường mía", 12, 3, "kg", 180)
             })
             {
                 if (await context.InventoryItems.AnyAsync(i => i.Name == spec.Name))
@@ -186,9 +189,19 @@ namespace CoffeeShop.Data
                         PaymentDate = created.AddMinutes(20),
                         Status = "Completed",
                         CustomerInfo = sample.Customer,
-                        TransactionId = $"MAU-{order.Id}"
+                        TransactionId = $"MAU-{order.Id}",
+                        Notes = ""
                     });
                 }
+            }
+
+            // Align floor status with open sample tickets.
+            foreach (var table in tables.Values)
+            {
+                var hasOpen = await context.Orders.AnyAsync(o =>
+                    o.TableId == table.Id &&
+                    (o.Status == "New" || o.Status == "Processing" || o.Status == "Ready" || o.Status == "PendingMobilePayment"));
+                table.Status = hasOpen ? "Occupied" : (table.Status == "Reserved" ? "Reserved" : "Empty");
             }
 
             await context.SaveChangesAsync();
@@ -211,6 +224,15 @@ namespace CoffeeShop.Data
                 if (!result.Succeeded)
                     return;
             }
+            else
+            {
+                if (string.IsNullOrWhiteSpace(user.FullName))
+                {
+                    user.FullName = fullName;
+                    await users.UpdateAsync(user);
+                }
+            }
+
             if (!await users.IsInRoleAsync(user, role))
                 await users.AddToRoleAsync(user, role);
         }

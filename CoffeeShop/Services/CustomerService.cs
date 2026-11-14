@@ -30,7 +30,8 @@ namespace CoffeeShop.Services
 
             customer.JoinDate = DateTime.Now;
             customer.LastUpdated = DateTime.Now;
-            customer.MembershipLevel = "Bronze";
+            if (string.IsNullOrWhiteSpace(customer.MembershipLevel))
+                customer.MembershipLevel = "Bronze";
             customer.LoyaltyPoints = 0;
             customer.TotalSpent = 0;
             customer.TotalOrders = 0;
@@ -41,13 +42,14 @@ namespace CoffeeShop.Services
             return customer;
         }
 
-        public async Task<Customer> GetCustomerByIdAsync(int customerId)
+        public async Task<Customer?> GetCustomerByIdAsync(int customerId)
         {
             return await _unitOfWork.Customers.GetByIdAsync(customerId);
         }
 
-        public async Task<Customer> GetCustomerByPhoneAsync(string phoneNumber)
+        public async Task<Customer?> GetCustomerByPhoneAsync(string phoneNumber)
         {
+            if (string.IsNullOrWhiteSpace(phoneNumber)) return null;
             var customers = await _unitOfWork.Customers.GetAllAsync();
             return customers.FirstOrDefault(c => c.PhoneNumber == phoneNumber);
         }
@@ -162,10 +164,8 @@ namespace CoffeeShop.Services
             return payments.Where(p => p.CustomerId == customerId).OrderByDescending(p => p.PaymentDate);
         }
 
-        public async Task<Customer> GetCustomerWithDetailsAsync(int customerId)
+        public async Task<Customer?> GetCustomerWithDetailsAsync(int customerId)
         {
-            // For basic implementation, just return customer
-            // In real scenario, you might want to include related data
             return await GetCustomerByIdAsync(customerId);
         }
 

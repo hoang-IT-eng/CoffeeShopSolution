@@ -1,15 +1,11 @@
-﻿// Services/OrderService.cs - Phiên bản cải thiện
-using CoffeeShop.Data.UnitOfWork;
+﻿using CoffeeShop.Data.UnitOfWork;
 using CoffeeShop.Models;
-using System;
-using System.Collections.Generic;
-using System.Threading.Tasks;
-using System.Linq;
 
 namespace CoffeeShop.Services
 {
     public class OrderService : IOrderService
     {
+        private static readonly string[] OpenStatuses = { "New", "Processing", "Ready", "PendingMobilePayment" };
         private readonly IUnitOfWork _unitOfWork;
 
         public OrderService(IUnitOfWork unitOfWork)
@@ -17,14 +13,13 @@ namespace CoffeeShop.Services
             _unitOfWork = unitOfWork;
         }
 
-        public async Task CreateOrderAsync(Order order, List<OrderDetail> orderDetails) // Hoặc Task<Order>
+        public async Task CreateOrderAsync(Order order, List<OrderDetail> orderDetails)
         {
             if (order == null || orderDetails == null || !orderDetails.Any())
             {
                 throw new ArgumentException("Thông tin đơn hàng không hợp lệ.");
             }
 
-            // 1. Tính tổng tiền
             decimal total = 0;
             foreach (var detail in orderDetails)
             {
@@ -38,104 +33,99 @@ namespace CoffeeShop.Services
                     throw new InvalidOperationException($"Không tìm thấy MenuItem với ID: {detail.MenuItemId}");
                 }
                 total += detail.Quantity * menuItem.Price;
-                detail.Price = menuItem.Price; // Gán đơn giá vào chi tiết
+                detail.Price = menuItem.Price;
             }
             order.Total = total;
-
-            // 2. Thiết lập thông tin cơ bản cho Order
             order.CreatedAt = DateTime.Now;
-            order.Status = "New"; // Hoặc một trạng thái mặc định khác
+            order.Status = "New";
 
-            // 3. Lưu Order để lấy ID
             await _unitOfWork.Orders.AddAsync(order);
-            await _unitOfWork.SaveChangesAsync(); // Quan trọng: Lưu để order.Id được gán
+            await _unitOfWork.SaveChangesAsync();
 
-            // 4. Gán OrderId cho OrderDetails và lưu chúng
             foreach (var detail in orderDetails)
             {
-                detail.OrderId = order.Id; // Sử dụng ID vừa được tạo
+                detail.OrderId = order.Id;
                 await _unitOfWork.OrderDetails.AddAsync(detail);
             }
 
-            // 5. Lưu tất cả OrderDetails
             await _unitOfWork.SaveChangesAsync();
-
-            // return order; // Nếu phương thức trả về Task<Order>
         }
 
         public async Task<IEnumerable<Order>> GetPendingOrdersAsync()
         {
-            var orders = await _unitOfWork.Orders.FindAsync(
-                o => o.Status == "New" || o.Status == "Processing"
-            );
+            // Floor / shift: every open ticket including Ready waiting for payment.
+            var orders = (await _unitOfWork.Orders.FindWithIncludeAsync(
+                o => o.Status == "New" || o.Status == "Processing" || o.Status == "Ready" || o.Status == "PendingMobilePayment",
+                o => o.Table)).OrderByDescending(o => o.CreatedAt).ToList();
 
-            // Load Table manually for each order
-            foreach (var order in orders)
-            {
-                order.Table = await _unitOfWork.Tables.GetByIdAsync(order.TableId);
-            }
-
+            await AttachDetailsAsync(orders);
             return orders;
         }
 
         public async Task<IEnumerable<Order>> GetReadyOrdersAsync()
         {
-            var orders = await _unitOfWork.Orders.FindAsync(
-                o => o.Status == "Processing" || o.Status == "Ready" || o.Status == "New"
-            );
+            // Cashier queue: ready to collect payment (or unfinished mobile).
+            var orders = (await _unitOfWork.Orders.FindWithIncludeAsync(
+                o => o.Status == "Ready" || o.Status == "PendingMobilePayment",
+                o => o.Table)).OrderBy(o => o.CreatedAt).ToList();
 
-            // Load related data manually
-            foreach (var order in orders)
-            {
-                order.Table = await _unitOfWork.Tables.GetByIdAsync(order.TableId);
-
-                var orderDetails = await _unitOfWork.OrderDetails.FindAsync(od => od.OrderId == order.Id);
-                order.OrderDetails = orderDetails.ToList();
-
-                foreach (var detail in order.OrderDetails)
-                {
-                    detail.MenuItem = await _unitOfWork.MenuItems.GetByIdAsync(detail.MenuItemId);
-                }
-            }
-
+            await AttachDetailsAsync(orders);
             return orders;
         }
 
         public async Task UpdateStatusAsync(int orderId, string status)
         {
             var order = await _unitOfWork.Orders.GetByIdAsync(orderId);
-            if (order != null)
+            if (order == null)
             {
-                order.Status = status;
-                _unitOfWork.Orders.Update(order);
-                await _unitOfWork.SaveChangesAsync();
+                throw new InvalidOperationException("Không tìm thấy đơn hàng.");
             }
+
+            order.Status = status;
+            _unitOfWork.Orders.Update(order);
+            await _unitOfWork.SaveChangesAsync();
         }
 
-        public async Task<Order> GetByIdAsync(int orderId)
+        public async Task<Order?> GetByIdAsync(int orderId)
         {
             return await _unitOfWork.Orders.GetByIdAsync(orderId);
         }
 
-        public async Task<Order> GetOrderWithDetailsAsync(int orderId)
+        public async Task<Order?> GetOrderWithDetailsAsync(int orderId)
         {
-            var order = await _unitOfWork.Orders.GetByIdAsync(orderId);
-            if (order != null)
+            var order = await _unitOfWork.Orders.GetByIdWithIncludesAsync(orderId, o => o.Table);
+            if (order == null)
             {
-                // Load Table
-                order.Table = await _unitOfWork.Tables.GetByIdAsync(order.TableId);
+                return null;
+            }
 
-                // Load OrderDetails
-                var orderDetails = await _unitOfWork.OrderDetails.FindAsync(od => od.OrderId == orderId);
-                order.OrderDetails = orderDetails.ToList();
+            await AttachDetailsAsync(new List<Order> { order });
+            return order;
+        }
 
-                // Load MenuItem for each OrderDetail
+        public static bool IsOpenStatus(string? status) =>
+            !string.IsNullOrWhiteSpace(status) && OpenStatuses.Contains(status);
+
+        private async Task AttachDetailsAsync(List<Order> orders)
+        {
+            if (orders.Count == 0) return;
+
+            var ids = orders.Select(o => o.Id).ToList();
+            var details = (await _unitOfWork.OrderDetails.FindAsync(d => ids.Contains(d.OrderId))).ToList();
+            var menuIds = details.Select(d => d.MenuItemId).Distinct().ToList();
+            var menus = menuIds.Count == 0
+                ? new Dictionary<int, MenuItem>()
+                : (await _unitOfWork.MenuItems.FindAsync(m => menuIds.Contains(m.Id))).ToDictionary(m => m.Id);
+
+            foreach (var order in orders)
+            {
+                order.OrderDetails = details.Where(d => d.OrderId == order.Id).ToList();
                 foreach (var detail in order.OrderDetails)
                 {
-                    detail.MenuItem = await _unitOfWork.MenuItems.GetByIdAsync(detail.MenuItemId);
+                    if (menus.TryGetValue(detail.MenuItemId, out var item))
+                        detail.MenuItem = item;
                 }
             }
-            return order;
         }
     }
 }

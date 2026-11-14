@@ -9,8 +9,8 @@ namespace CoffeeShop.Services
     {
         // CRUD Operations
         Task<Customer> CreateCustomerAsync(Customer customer);
-        Task<Customer> GetCustomerByIdAsync(int customerId);
-        Task<Customer> GetCustomerByPhoneAsync(string phoneNumber);
+        Task<Customer?> GetCustomerByIdAsync(int customerId);
+        Task<Customer?> GetCustomerByPhoneAsync(string phoneNumber);
         Task<IEnumerable<Customer>> GetAllCustomersAsync();
         Task<IEnumerable<Customer>> SearchCustomersAsync(string searchTerm);
         Task UpdateCustomerAsync(Customer customer);
@@ -24,7 +24,7 @@ namespace CoffeeShop.Services
 
         // Purchase History
         Task<IEnumerable<Payment>> GetCustomerPurchaseHistoryAsync(int customerId);
-        Task<Customer> GetCustomerWithDetailsAsync(int customerId);
+        Task<Customer?> GetCustomerWithDetailsAsync(int customerId);
 
         // Statistics
         Task<decimal> GetCustomerTotalSpentAsync(int customerId);
